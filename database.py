@@ -13,7 +13,11 @@ except ImportError:
     print("[db] asyncpg tidak terinstall — database dinonaktifkan")
 
 pool = None
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+# Prioritas: private URL (gratis) > public URL (kena egress fee)
+DATABASE_URL = (
+    os.getenv("DATABASE_PRIVATE_URL", "") or
+    os.getenv("DATABASE_URL", "")
+)
 
 
 async def init_db():
