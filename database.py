@@ -1,10 +1,16 @@
-"""
+﻿"""
 database.py — Koneksi dan operasi PostgreSQL untuk Z Trader
 Nonaktif otomatis jika DATABASE_URL tidak diset (mode lokal tanpa DB).
 """
 
 import os
-import asyncpg
+
+try:
+    import asyncpg
+    ASYNCPG_AVAILABLE = True
+except ImportError:
+    ASYNCPG_AVAILABLE = False
+    print("[db] asyncpg tidak terinstall — database dinonaktifkan")
 
 pool = None
 DATABASE_URL = os.getenv("DATABASE_URL", "")
@@ -12,7 +18,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 async def init_db():
     global pool
-    if not DATABASE_URL:
+    if not ASYNCPG_AVAILABLE or not DATABASE_URL:
         print("[db] DATABASE_URL tidak diset — database dinonaktifkan")
         return
     # Railway kadang pakai prefix 'postgres://', asyncpg butuh 'postgresql://'
