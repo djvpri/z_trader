@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="UTF-8"/>
@@ -235,8 +235,9 @@ let prevTrades    = {deepseek:0, gemini:0, qwen:0};
 let prevPositions = {deepseek:0, gemini:0, qwen:0};
 let currentPrice  = 0;
 let latestAgents  = {};
-let firstPrice    = 0;
+let firstPrice     = 0;
 let countdownTimer = null;
+let currentNewsText = '';
 
 function fmtUSD(n){ return '$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) }
 function fmtSUSD(n){ return (n>=0?'+':'-')+fmtUSD(n) }
@@ -401,9 +402,13 @@ function handleTick(data){
   chgEl.style.color=chg>=0?'var(--green)':'var(--red)';
 
   if(data.news && data.news!=='Menunggu berita...'){
-    const el=document.getElementById('newsTxt');
-    el.style.animation='none'; el.textContent='XAU/USD: '+data.news;
-    void el.offsetWidth; el.style.animation='scroll-left 20s linear infinite';
+    const newText = 'XAU/USD: '+data.news;
+    if(newText !== currentNewsText){
+      currentNewsText = newText;
+      const el=document.getElementById('newsTxt');
+      el.style.animation='none'; el.textContent=newText;
+      void el.offsetWidth; el.style.animation='scroll-left 20s linear infinite';
+    }
   }
 
   chart.data.labels.push('T'+data.tick);

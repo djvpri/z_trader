@@ -250,8 +250,9 @@ const TICKERS = ['BBCA.JK','TLKM.JK','ASII.JK','BBRI.JK','GOTO.JK'];
 const WS_URL  = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
 
 let chart, ws;
-let focusedTicker  = 'BBCA.JK';
-let activeFilter   = 'all';
+let focusedTicker   = 'BBCA.JK';
+let activeFilter    = 'all';
+let currentNewsText = '';
 let countdownTimer = null;
 let nextOpenTs     = null;
 
@@ -494,10 +495,11 @@ function handleTick(data){
   updatePricesStrip(data.prices);
   updateFocusedPrice(data.prices);
 
-  // Update news (focused ticker)
+  // Update news hanya saat teks berubah
   const newsObj = data.news && data.news[focusedTicker];
   if(newsObj && newsObj.text && newsObj.text !== 'Menunggu berita...'){
-    updateNewsStrip(focusedTicker.replace('.JK','')+': '+newsObj.text);
+    const newText = focusedTicker.replace('.JK','')+': '+newsObj.text;
+    if(newText !== currentNewsText){ currentNewsText = newText; updateNewsStrip(newText); }
   }
 
   // Update chart
