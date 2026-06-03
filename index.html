@@ -189,7 +189,7 @@
 const MODAL   = 100_000_000;
 const COLORS  = {deepseek:'#378ADD', gemini:'#1D9E75', qwen:'#D85A30'};
 const TICKERS = ['BBCA.JK','TLKM.JK','ASII.JK','BBRI.JK','GOTO.JK'];
-const WS_URL  = 'ws://localhost:8000/ws';
+const WS_URL  = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
 
 let chart, ws;
 let focusedTicker  = 'BBCA.JK';
