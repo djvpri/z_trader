@@ -11,7 +11,7 @@ import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, date, time, timezone, timedelta
 from typing import Optional
 
 import httpx
@@ -60,6 +60,52 @@ FUNDAMENTAL = {
     "GOTO.JK": {"PE": "N/A",   "PBV": "3.8x", "ROE": "-4.2%", "DY": "0%",   "rating": "Speculative"},
 }
 TICKERS = list(FUNDAMENTAL.keys())
+WIB = timezone(timedelta(hours=7))
+
+
+# ─── Jam pasar IHSG ───────────────────────────────────────────────────────────
+def _next_open_dt(now: datetime) -> datetime:
+    """Hitung waktu buka pasar berikutnya."""
+    today = now.date()
+    t     = now.time()
+    wd    = now.weekday()
+    if wd < 5 and t < time(9, 0):
+        return datetime.combine(today, time(9, 0), tzinfo=WIB)
+    if wd < 5 and time(12, 0) < t < time(13, 30):
+        return datetime.combine(today, time(13, 30), tzinfo=WIB)
+    delta = 1
+    while True:
+        nxt = today + timedelta(days=delta)
+        if nxt.weekday() < 5:
+            return datetime.combine(nxt, time(9, 0), tzinfo=WIB)
+        delta += 1
+
+
+def get_market_status() -> dict:
+    now = datetime.now(WIB)
+    wd  = now.weekday()
+    t   = now.time()
+
+    if wd >= 5:
+        reason = "Akhir pekan"
+    elif t < time(9, 0):
+        reason = "Belum buka (pre-market)"
+    elif time(9, 0) <= t <= time(12, 0):
+        return {"open": True, "session": "Sesi 1 (09:00–12:00 WIB)"}
+    elif time(12, 0) < t < time(13, 30):
+        reason = "Istirahat siang"
+    elif time(13, 30) <= t <= time(15, 50):
+        return {"open": True, "session": "Sesi 2 (13:30–15:50 WIB)"}
+    else:
+        reason = "Pasar sudah tutup"
+
+    next_dt = _next_open_dt(now)
+    return {
+        "open":      False,
+        "reason":    reason,
+        "next_open": next_dt.isoformat(),
+        "server_ts": now.isoformat(),
+    }
 
 
 # ─── State global ──────────────────────────────────────────────────────────────
@@ -409,6 +455,18 @@ async def broadcast(payload: dict):
 async def trading_loop():
     print("[loop] Trading loop dimulai — mode multi-saham")
     while True:
+        market = get_market_status()
+
+        if not market["open"]:
+            await broadcast({
+                "type":      "market_closed",
+                "reason":    market["reason"],
+                "next_open": market["next_open"],
+                "server_ts": market["server_ts"],
+            })
+            await asyncio.sleep(30)
+            continue
+
         new_prices = await fetch_all_prices()
         if not new_prices:
             await asyncio.sleep(POLL_INTERVAL)
@@ -464,6 +522,7 @@ async def trading_loop():
         # ── Susun payload ──
         payload = {
             "type":    "tick",
+            "session": market.get("session", ""),
             "tick":    sim.tick_count,
             "prices":  {t: round(p, 2) for t, p in sim.prices.items() if p},
             "trigger": sim.last_trigger,

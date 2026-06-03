@@ -133,11 +133,29 @@
     .log-filter{padding:4px 7px;font-size:10px}
     .price-chip-val{display:none}
   }
+  /* Market closed banner */
+  #marketBanner{display:none;background:#1a1a18;color:#e2e0d6;border-radius:12px;
+                padding:20px 16px;margin-bottom:1rem;text-align:center}
+  #marketBanner.show{display:block}
+  .mkt-icon{font-size:32px;margin-bottom:8px}
+  .mkt-reason{font-size:15px;font-weight:600;margin-bottom:4px}
+  .mkt-next-lbl{font-size:11px;color:#888780;margin-bottom:6px}
+  .mkt-countdown{font-size:28px;font-weight:700;letter-spacing:2px;
+                 color:#f0c040;font-variant-numeric:tabular-nums;margin-bottom:4px}
+  .mkt-next-time{font-size:11px;color:#888780}
 </style>
 </head>
 <body>
 
 <h1>Z Trader — IDX</h1>
+
+<div id="marketBanner">
+  <div class="mkt-icon">&#128308;</div>
+  <div class="mkt-reason" id="mktReason">Pasar Tutup</div>
+  <div class="mkt-next-lbl">Buka kembali dalam</div>
+  <div class="mkt-countdown" id="mktCountdown">--:--:--</div>
+  <div class="mkt-next-time" id="mktNextTime"></div>
+</div>
 
 <div class="topbar">
   <div class="ticker-btns" id="tickerBtns">
@@ -231,6 +249,37 @@ const WS_URL  = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + locat
 let chart, ws;
 let focusedTicker  = 'BBCA.JK';
 let activeFilter   = 'all';
+let countdownTimer = null;
+let nextOpenTs     = null;
+
+function startCountdown(isoStr){
+  nextOpenTs = new Date(isoStr);
+  if(countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(function(){
+    const diff = nextOpenTs - new Date();
+    if(diff <= 0){ clearInterval(countdownTimer); document.getElementById('mktCountdown').textContent = '00:00:00'; return; }
+    const h = Math.floor(diff/3600000);
+    const m = Math.floor((diff%3600000)/60000);
+    const s = Math.floor((diff%60000)/1000);
+    document.getElementById('mktCountdown').textContent = String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+  }, 1000);
+}
+
+function showMarketClosed(data){
+  document.getElementById('marketBanner').classList.add('show');
+  document.getElementById('mktReason').textContent = data.reason;
+  if(data.next_open){
+    const next = new Date(data.next_open);
+    document.getElementById('mktNextTime').textContent = next.toLocaleString('id-ID',{weekday:'long',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Jakarta'})+' WIB';
+    startCountdown(data.next_open);
+  }
+  document.getElementById('status').innerHTML = '<span class="dot red"></span>Pasar tutup';
+}
+
+function hideMarketBanner(){
+  document.getElementById('marketBanner').classList.remove('show');
+  if(countdownTimer){ clearInterval(countdownTimer); countdownTimer = null; }
+}
 let lastSignals    = {deepseek:'HOLD', gemini:'HOLD', qwen:'HOLD'};
 let prevTrades     = {deepseek:0, gemini:0, qwen:0};
 let prevHoldings   = {deepseek:{}, gemini:{}, qwen:{}};
@@ -473,8 +522,12 @@ function handleTick(data){
 
 function connect(){
   ws = new WebSocket(WS_URL);
-  ws.onopen  = ()=>{ document.getElementById('status').innerHTML = '<span class="dot green"></span>Terhubung · multi-saham'; };
-  ws.onmessage = (e)=>{ const d=JSON.parse(e.data); if(d.type==='tick') handleTick(d); };
+  ws.onopen  = ()=>{ document.getElementById('status').innerHTML = '<span class="dot green"></span>Terhubung'; };
+  ws.onmessage = (e)=>{
+    const d = JSON.parse(e.data);
+    if(d.type === 'tick'){ hideMarketBanner(); handleTick(d); }
+    else if(d.type === 'market_closed'){ showMarketClosed(d); }
+  };
   ws.onclose = ()=>{
     document.getElementById('status').innerHTML = '<span class="dot red"></span>Terputus — mencoba ulang...';
     setTimeout(connect, 3000);
