@@ -18,18 +18,18 @@
   body{background:var(--bg);color:var(--text);padding:1rem}
   h1{font-size:18px;font-weight:500;margin-bottom:1rem}
 
-  .topbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:1rem}
-  .ticker-btns{display:flex;gap:6px;flex-wrap:wrap}
-  .tbtn{padding:4px 12px;border:0.5px solid var(--border);border-radius:8px;
-        background:transparent;color:var(--muted);font-size:12px;cursor:pointer}
+  .topbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:1rem}
+  .ticker-btns{display:flex;gap:5px;flex-wrap:wrap}
+  .tbtn{padding:6px 12px;border:0.5px solid var(--border);border-radius:8px;
+        background:transparent;color:var(--muted);font-size:12px;cursor:pointer;min-height:32px}
   .tbtn.active{background:#e6f1fb;color:#185FA5;border-color:#185FA5}
-  .status{font-size:12px;color:var(--muted);margin-left:auto}
+  .status{font-size:11px;color:var(--muted);margin-left:auto;white-space:nowrap}
   .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
   .dot.green{background:var(--green)}.dot.red{background:var(--red)}.dot.gray{background:var(--muted)}
 
-  .price-bar{display:flex;align-items:baseline;gap:10px;margin-bottom:.75rem}
-  .price-big{font-size:26px;font-weight:500}
-  .price-chg{font-size:14px}
+  .price-bar{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:.75rem}
+  .price-big{font-size:24px;font-weight:500}
+  .price-chg{font-size:13px}
 
   .news-strip{background:var(--card);border:0.5px solid var(--border);border-radius:8px;
               padding:6px 12px;margin-bottom:.75rem;display:flex;align-items:center;
@@ -42,19 +42,21 @@
 
   .chart-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;
               padding:1rem;margin-bottom:.75rem}
-  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:10px}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:10px}
   .ldot{display:inline-block;width:10px;height:3px;border-radius:1px;margin-right:4px;vertical-align:middle}
 
-  .ai-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  .ai-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
             gap:10px;margin-bottom:.75rem}
-  .ai-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:12px}
+  .ai-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:12px;
+           cursor:pointer;transition:box-shadow .15s}
+  .ai-card:hover{box-shadow:0 4px 16px rgba(0,0,0,0.10)}
   .ai-card.leader{border:2px solid var(--green)}
   .ai-card.loser {border:2px solid var(--red)}
   .ai-hdr{display:flex;align-items:center;gap:7px;margin-bottom:3px}
   .ai-name{font-size:14px;font-weight:500}
   .ai-model{font-size:10px;color:var(--muted);margin-bottom:8px}
   .stat-lbl{font-size:10px;color:var(--muted);margin-top:5px}
-  .stat-val{font-size:15px;font-weight:500}
+  .stat-val{font-size:14px;font-weight:500}
   .stat-val.pos{color:var(--green)}.stat-val.neg{color:var(--red)}
   .sig-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;
               border-radius:6px;font-size:11px;font-weight:500;margin-top:7px}
@@ -68,45 +70,69 @@
   .panel{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:12px}
   .panel-title{font-size:11px;color:var(--muted);font-weight:500;
                 letter-spacing:.04em;margin-bottom:8px}
-  .log-list{display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto}
-  .log-item{display:flex;gap:6px;padding:5px 7px;border-radius:7px;font-size:11px}
+  .log-list{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto}
+  .log-item{display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px;border-radius:7px;font-size:11px;align-items:flex-start}
   .log-item.buy {background:#eaf3de}.log-item.sell{background:#fcebeb}
   .log-who{font-weight:500;min-width:52px}
   .log-act{font-weight:500;min-width:28px}
   .log-act.buy{color:var(--green)}.log-act.sell{color:var(--red)}
-  .log-txt{color:var(--muted);flex:1}
-  .log-ts {color:var(--muted);white-space:nowrap;font-size:10px}
+  .log-txt{color:var(--muted);flex:1;min-width:0;word-break:break-word}
+  .log-ts {color:var(--muted);white-space:nowrap;font-size:10px;margin-left:auto}
   .rank-list{display:flex;flex-direction:column;gap:5px}
   .rank-row{display:flex;align-items:center;gap:8px;padding:7px 10px;
              border-radius:7px;background:var(--bg);font-size:12px}
   .rank-num{font-weight:500;color:var(--muted);min-width:16px}
   .rank-name{flex:1;font-weight:500}
 
-  @media(max-width:600px){.bottom{grid-template-columns:1fr}}
-
   /* Modal */
-  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:100;align-items:center;justify-content:center}
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);
+                 z-index:100;align-items:flex-end;justify-content:center}
   .modal-overlay.open{display:flex}
-  .modal-box{background:var(--card);border-radius:16px;padding:20px;min-width:300px;max-width:420px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.18)}
+  .modal-box{background:var(--card);border-radius:16px 16px 0 0;padding:20px;
+             width:100%;max-width:480px;max-height:85vh;overflow-y:auto;
+             box-shadow:0 -4px 32px rgba(0,0,0,0.18)}
   .modal-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
   .modal-title{font-size:15px;font-weight:600}
-  .modal-close{background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1}
-  .modal-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:13px}
+  .modal-close{background:none;border:none;font-size:20px;cursor:pointer;
+               color:var(--muted);line-height:1;padding:4px 8px;min-height:36px}
+  .modal-row{display:flex;justify-content:space-between;align-items:center;
+             padding:8px 0;border-bottom:0.5px solid var(--border);font-size:13px;gap:8px}
   .modal-row:last-child{border-bottom:none}
-  .modal-lbl{color:var(--muted)}
-  .modal-val{font-weight:500}
-  .ai-card{cursor:pointer;transition:box-shadow .15s}
-  .ai-card:hover{box-shadow:0 4px 16px rgba(0,0,0,0.10)}
+  .modal-lbl{color:var(--muted);flex-shrink:0}
+  .modal-val{font-weight:500;text-align:right;word-break:break-word}
+
   .log-filter{background:none;border:0.5px solid var(--border);border-radius:6px;
-              padding:2px 8px;font-size:10px;cursor:pointer;color:var(--muted);transition:all .15s}
+              padding:5px 10px;font-size:11px;cursor:pointer;color:var(--muted);
+              transition:all .15s;min-height:30px;white-space:nowrap}
   .log-filter.active{background:var(--text);color:var(--bg);border-color:var(--text)}
-  .prices-strip{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:.6rem}
+
+  .prices-strip{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:.6rem}
   .price-chip{background:var(--card);border:0.5px solid var(--border);border-radius:8px;
-              padding:4px 10px;font-size:11px;cursor:pointer;transition:border-color .15s}
+              padding:5px 10px;font-size:11px;cursor:pointer;transition:border-color .15s;
+              display:flex;align-items:center;gap:4px;min-height:32px}
   .price-chip.active{border-color:#185FA5;background:#e6f1fb}
-  .price-chip-name{font-weight:600;margin-right:5px}
+  .price-chip-name{font-weight:600}
   .price-chip-val{color:var(--muted)}
-  .price-chip-chg{font-size:10px;margin-left:4px}
+  .price-chip-chg{font-size:10px}
+
+  /* ── Responsive ──────────────────────────────────────── */
+  @media(max-width:600px){
+    body{padding:.75rem}
+    h1{font-size:16px}
+    .bottom{grid-template-columns:1fr}
+    .ai-grid{grid-template-columns:1fr 1fr}
+    .price-big{font-size:20px}
+    .stat-val{font-size:13px}
+    .log-list{max-height:160px}
+  }
+  @media(max-width:400px){
+    .ai-grid{grid-template-columns:1fr}
+    .ticker-btns{gap:4px}
+    .tbtn{padding:5px 8px;font-size:11px}
+    #logFilters{flex-wrap:wrap;gap:3px}
+    .log-filter{padding:4px 7px;font-size:10px}
+    .price-chip-val{display:none}
+  }
 </style>
 </head>
 <body>
