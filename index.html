@@ -331,7 +331,8 @@ function addLog(name, type, lots, ticker, price, ag){
     label = stock+' JUAL '+lots+' lot @ Rp '+price.toLocaleString('id-ID')+' &bull; '+pnlS;
   }
   const d = document.createElement('div');
-  d.className = 'log-item '+type;
+  d.className    = 'log-item '+type;
+  d.dataset.agent = name;
   d.innerHTML = '<span class="log-who" style="color:'+COLORS[name]+'">'+name+'</span>'
     +' <span class="log-act '+type+'">'+type.toUpperCase()+'</span>'
     +' <span class="log-txt">'+label+'</span>'
