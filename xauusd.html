@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Z Trader — XAU/USD</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#f9f9f7; --card:#fff; --border:#e5e4de; --text:#1a1a18;
+    --muted:#6b6a65; --green:#1D9E75; --red:#E24B4A; --blue:#378ADD;
+    --coral:#D85A30; --gold:#B8860B; --gold-light:#FFF3CD;
+  }
+  @media(prefers-color-scheme:dark){
+    :root{--bg:#1a1a18;--card:#242422;--border:#3a3a38;--text:#e2e0d6;--muted:#888780}
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,sans-serif}
+  body{background:var(--bg);color:var(--text);padding:1rem}
+
+  .topbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:1rem}
+  .back-btn{padding:5px 12px;border:0.5px solid var(--border);border-radius:8px;
+            background:transparent;color:var(--muted);font-size:12px;cursor:pointer;
+            text-decoration:none;display:inline-flex;align-items:center;gap:5px}
+  .pair-badge{background:var(--gold-light);color:var(--gold);border:0.5px solid #d4a017;
+              border-radius:8px;padding:4px 12px;font-size:13px;font-weight:600}
+  .status{font-size:11px;color:var(--muted);margin-left:auto}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
+  .dot.green{background:var(--green)}.dot.red{background:var(--red)}.dot.gray{background:var(--muted)}
+
+  /* Market closed banner */
+  #marketBanner{display:none;background:#1a1a18;color:#e2e0d6;border-radius:12px;
+                padding:20px 16px;margin-bottom:1rem;text-align:center}
+  #marketBanner.show{display:block}
+  .mkt-icon{font-size:32px;margin-bottom:8px}
+  .mkt-reason{font-size:15px;font-weight:600;margin-bottom:4px}
+  .mkt-next-lbl{font-size:11px;color:#888780;margin-bottom:6px}
+  .mkt-countdown{font-size:28px;font-weight:700;letter-spacing:2px;
+                 color:#f0c040;font-variant-numeric:tabular-nums;margin-bottom:4px}
+  .mkt-next-time{font-size:11px;color:#888780}
+
+  .price-bar{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:.75rem}
+  .price-big{font-size:28px;font-weight:500}
+  .price-chg{font-size:14px}
+  .price-unit{font-size:12px;color:var(--muted)}
+
+  .news-strip{background:var(--card);border:0.5px solid var(--border);border-radius:8px;
+              padding:6px 12px;margin-bottom:.75rem;display:flex;align-items:center;
+              gap:8px;overflow:hidden}
+  .news-lbl{font-size:10px;font-weight:500;color:var(--gold);background:var(--gold-light);
+             padding:2px 7px;border-radius:6px;white-space:nowrap;flex-shrink:0}
+  .news-txt{font-size:12px;color:var(--muted);white-space:nowrap;
+            animation:scroll-left 20s linear infinite}
+  @keyframes scroll-left{from{transform:translateX(50%)}to{transform:translateX(-100%)}}
+
+  .chart-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;
+              padding:1rem;margin-bottom:.75rem}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:10px}
+  .ldot{display:inline-block;width:10px;height:3px;border-radius:1px;margin-right:4px;vertical-align:middle}
+
+  .ai-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+            gap:10px;margin-bottom:.75rem}
+  .ai-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;
+           padding:12px;cursor:pointer;transition:box-shadow .15s}
+  .ai-card:hover{box-shadow:0 4px 16px rgba(0,0,0,0.10)}
+  .ai-card.leader{border:2px solid var(--green)}
+  .ai-card.loser {border:2px solid var(--red)}
+  .ai-hdr{display:flex;align-items:center;gap:7px;margin-bottom:3px}
+  .ai-name{font-size:14px;font-weight:500}
+  .ai-model{font-size:10px;color:var(--muted);margin-bottom:8px}
+  .stat-lbl{font-size:10px;color:var(--muted);margin-top:5px}
+  .stat-val{font-size:14px;font-weight:500}
+  .stat-val.pos{color:var(--green)}.stat-val.neg{color:var(--red)}
+  .sig-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;
+              border-radius:6px;font-size:11px;font-weight:500;margin-top:7px}
+  .sig-badge.BUY {background:#eaf3de;color:#3B6D11}
+  .sig-badge.SELL{background:#fcebeb;color:#A32D2D}
+  .sig-badge.HOLD{background:#faeeda;color:#854F0B}
+  .reason{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.45;
+           border-left:2px solid var(--border);padding-left:6px;min-height:28px}
+  #trigger-badge{font-size:10px;color:#f0c040;margin-bottom:4px;min-height:14px}
+
+  .bottom{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .panel{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:12px}
+  .panel-title{font-size:11px;color:var(--muted);font-weight:500;letter-spacing:.04em;margin-bottom:8px}
+  .log-list{display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto}
+  .log-item{display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px;border-radius:7px;font-size:11px}
+  .log-item.buy{background:#eaf3de}.log-item.sell{background:#fcebeb}
+  .log-who{font-weight:500;min-width:52px}
+  .log-act.buy{color:var(--green);font-weight:500}
+  .log-act.sell{color:var(--red);font-weight:500}
+  .log-txt{color:var(--muted);flex:1;min-width:0;word-break:break-word}
+  .log-ts{color:var(--muted);white-space:nowrap;font-size:10px;margin-left:auto}
+  .rank-list{display:flex;flex-direction:column;gap:5px}
+  .rank-row{display:flex;align-items:center;gap:8px;padding:7px 10px;
+             border-radius:7px;background:var(--bg);font-size:12px}
+  .rank-num{font-weight:500;color:var(--muted);min-width:16px}
+  .rank-name{flex:1;font-weight:500}
+
+  /* Modal */
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);
+                 z-index:100;align-items:flex-end;justify-content:center}
+  .modal-overlay.open{display:flex}
+  .modal-box{background:var(--card);border-radius:16px 16px 0 0;padding:20px;
+             width:100%;max-width:480px;max-height:85vh;overflow-y:auto;
+             box-shadow:0 -4px 32px rgba(0,0,0,0.18)}
+  .modal-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .modal-title{font-size:15px;font-weight:600}
+  .modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)}
+  .modal-row{display:flex;justify-content:space-between;align-items:center;
+             padding:8px 0;border-bottom:0.5px solid var(--border);font-size:13px;gap:8px}
+  .modal-row:last-child{border-bottom:none}
+  .modal-lbl{color:var(--muted)}
+  .modal-val{font-weight:500;text-align:right}
+
+  .log-filter{background:none;border:0.5px solid var(--border);border-radius:6px;
+              padding:5px 10px;font-size:11px;cursor:pointer;color:var(--muted);
+              transition:all .15s;min-height:30px;white-space:nowrap}
+  .log-filter.active{background:var(--text);color:var(--bg);border-color:var(--text)}
+
+  @media(max-width:600px){
+    .bottom{grid-template-columns:1fr}
+    .ai-grid{grid-template-columns:1fr 1fr}
+    .price-big{font-size:22px}
+  }
+  @media(max-width:400px){
+    .ai-grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="/" class="back-btn">&#8592; IDX</a>
+  <span class="pair-badge">&#127882; XAU/USD</span>
+  <span style="font-size:11px;color:var(--muted)">Gold Futures · Modal $10,000</span>
+  <div class="status" id="status"><span class="dot gray"></span>Menghubungkan...</div>
+</div>
+
+<div id="marketBanner">
+  <div class="mkt-icon">&#128308;</div>
+  <div class="mkt-reason" id="mktReason">Pasar Tutup</div>
+  <div class="mkt-next-lbl">Buka kembali dalam</div>
+  <div class="mkt-countdown" id="mktCountdown">--:--:--</div>
+  <div class="mkt-next-time" id="mktNextTime"></div>
+</div>
+
+<div class="price-bar">
+  <span class="price-big" id="curPrice">—</span>
+  <span class="price-unit">USD/oz</span>
+  <span class="price-chg" id="curChg"></span>
+</div>
+
+<div class="news-strip">
+  <span class="news-lbl">BERITA EMAS</span>
+  <span class="news-txt" id="newsTxt">Menunggu data...</span>
+</div>
+
+<div class="chart-card">
+  <div class="legend">
+    <span><span class="ldot" style="background:#B8860B;height:2px"></span>XAU/USD</span>
+    <span><span class="ldot" style="background:#378ADD"></span>DeepSeek</span>
+    <span><span class="ldot" style="background:#1D9E75"></span>Gemini</span>
+    <span><span class="ldot" style="background:#D85A30"></span>Qwen</span>
+  </div>
+  <div style="position:relative;height:220px">
+    <canvas id="mainChart"></canvas>
+  </div>
+</div>
+
+<div class="ai-grid">
+  <div class="ai-card" id="card-deepseek" onclick="openModal('deepseek')">
+    <div class="ai-hdr"><span class="dot" style="background:#378ADD"></span><span class="ai-name">DeepSeek</span></div>
+    <div class="ai-model">RSI + Momentum Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-deepseek">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-deepseek">—</div>
+    <div class="sig-badge HOLD" id="sig-deepseek">HOLD</div>
+    <div class="reason" id="rsn-deepseek">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-gemini" onclick="openModal('gemini')">
+    <div class="ai-hdr"><span class="dot" style="background:#1D9E75"></span><span class="ai-name">Gemini</span></div>
+    <div class="ai-model">gemini-2.0-flash</div>
+    <div id="trigger-badge">menunggu sinyal...</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-gemini">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-gemini">—</div>
+    <div class="sig-badge HOLD" id="sig-gemini">HOLD</div>
+    <div class="reason" id="rsn-gemini">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-qwen" onclick="openModal('qwen')">
+    <div class="ai-hdr"><span class="dot" style="background:#D85A30"></span><span class="ai-name">Qwen</span></div>
+    <div class="ai-model">MA Crossover Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-qwen">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-qwen">—</div>
+    <div class="sig-badge HOLD" id="sig-qwen">HOLD</div>
+    <div class="reason" id="rsn-qwen">Menunggu data...</div>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <span class="panel-title" style="margin-bottom:0">LOG TRANSAKSI</span>
+      <div id="logFilters" style="display:flex;gap:4px">
+        <button class="log-filter active" data-filter="all">Semua</button>
+        <button class="log-filter" data-filter="deepseek" style="color:#378ADD">DeepSeek</button>
+        <button class="log-filter" data-filter="gemini" style="color:#1D9E75">Gemini</button>
+        <button class="log-filter" data-filter="qwen" style="color:#D85A30">Qwen</button>
+      </div>
+    </div>
+    <div class="log-list" id="logList"><p style="font-size:11px;color:var(--muted)">Belum ada transaksi.</p></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">PERINGKAT</div>
+    <div class="rank-list" id="rankList"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <span class="modal-title" id="modalTitle">Detail Portfolio</span>
+      <button class="modal-close" onclick="document.getElementById('modalOverlay').classList.remove('open')">&#x2715;</button>
+    </div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+const MODAL_USD = 10000;
+const COLORS    = {deepseek:'#378ADD', gemini:'#1D9E75', qwen:'#D85A30'};
+const WS_URL    = (location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/ws/xau';
+
+let chart, ws;
+let lastSignals   = {deepseek:'HOLD', gemini:'HOLD', qwen:'HOLD'};
+let prevTrades    = {deepseek:0, gemini:0, qwen:0};
+let prevPositions = {deepseek:0, gemini:0, qwen:0};
+let currentPrice  = 0;
+let latestAgents  = {};
+let firstPrice    = 0;
+let countdownTimer = null;
+
+function fmtUSD(n){ return '$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) }
+function fmtSUSD(n){ return (n>=0?'+':'-')+fmtUSD(n) }
+
+function initChart(){
+  if(chart) chart.destroy();
+  chart = new Chart(document.getElementById('mainChart'),{
+    type:'line',
+    data:{labels:[],datasets:[
+      {label:'XAU/USD', data:[],borderColor:'#B8860B',borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,yAxisID:'y'},
+      {label:'DeepSeek',data:[],borderColor:'#378ADD',borderWidth:1.2,pointRadius:0,tension:0.3,fill:false,borderDash:[5,3],yAxisID:'y2'},
+      {label:'Gemini',  data:[],borderColor:'#1D9E75',borderWidth:1.2,pointRadius:0,tension:0.3,fill:false,borderDash:[5,3],yAxisID:'y2'},
+      {label:'Qwen',    data:[],borderColor:'#D85A30',borderWidth:1.2,pointRadius:0,tension:0.3,fill:false,borderDash:[5,3],yAxisID:'y2'},
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:{duration:0},
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{maxTicksLimit:8,color:'#888'},grid:{color:'rgba(128,128,128,0.07)'}},
+        y:{position:'left', ticks:{color:'#888',callback:v=>'$'+Math.round(v)}, grid:{color:'rgba(128,128,128,0.07)'}},
+        y2:{position:'right', ticks:{color:'#888',callback:v=>{let d=v-MODAL_USD;return (d>=0?'+':'-')+'$'+Math.round(Math.abs(d))}}, grid:{display:false}}
+      }
+    }
+  });
+}
+
+function startCountdown(isoStr){
+  const target = new Date(isoStr);
+  if(countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(function(){
+    const diff = target - new Date();
+    if(diff <= 0){ clearInterval(countdownTimer); document.getElementById('mktCountdown').textContent='00:00:00'; return; }
+    const h=Math.floor(diff/3600000), m=Math.floor((diff%3600000)/60000), s=Math.floor((diff%60000)/1000);
+    document.getElementById('mktCountdown').textContent=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+  },1000);
+}
+
+function showMarketClosed(data){
+  document.getElementById('marketBanner').classList.add('show');
+  document.getElementById('mktReason').textContent = data.reason;
+  if(data.next_open){
+    const next = new Date(data.next_open);
+    document.getElementById('mktNextTime').textContent = next.toLocaleString('id-ID',{weekday:'long',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Jakarta'})+' WIB';
+    startCountdown(data.next_open);
+  }
+  document.getElementById('status').innerHTML='<span class="dot red"></span>Forex tutup';
+}
+
+function hideMarketBanner(){
+  document.getElementById('marketBanner').classList.remove('show');
+  if(countdownTimer){ clearInterval(countdownTimer); countdownTimer=null; }
+}
+
+function updateAgentCard(name, ag, allPf){
+  const pnl = ag.portfolio - MODAL_USD;
+  document.getElementById('pf-'+name).textContent = fmtUSD(ag.portfolio);
+  const pnlEl = document.getElementById('pnl-'+name);
+  pnlEl.textContent = fmtSUSD(pnl)+' ('+ag.pnl_pct.toFixed(2)+'%)';
+  pnlEl.className = 'stat-val '+(pnl>=0?'pos':'neg');
+  const sig = ag.signal;
+  const sigEl = document.getElementById('sig-'+name);
+  sigEl.className = 'sig-badge '+sig;
+  const icons = {BUY:'▲',SELL:'▼',HOLD:'—'};
+  sigEl.textContent = icons[sig]+' '+sig+(ag.confidence?' · '+ag.confidence+'%':'');
+  document.getElementById('rsn-'+name).textContent = ag.reason;
+  const card = document.getElementById('card-'+name);
+  const maxPf = Math.max(...allPf), minPf = Math.min(...allPf);
+  card.className = 'ai-card'+(ag.portfolio===maxPf?' leader':ag.portfolio===minPf?' loser':'');
+
+  if(ag.trades > prevTrades[name]){
+    const type = ag.positions > prevPositions[name] ? 'buy' : 'sell';
+    const oz   = type==='buy' ? (ag.positions-prevPositions[name]) : prevPositions[name];
+    addLog(name, type, oz, currentPrice, ag);
+  }
+  prevTrades[name]    = ag.trades;
+  prevPositions[name] = ag.positions;
+  lastSignals[name]   = sig;
+}
+
+function addLog(name, type, oz, price, ag){
+  const el = document.getElementById('logList');
+  const emp = el.querySelector('p');
+  if(emp) el.innerHTML='';
+  const now = new Date();
+  const ts  = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0')+':'+now.getSeconds().toString().padStart(2,'0');
+  const val = Math.round(oz*price*100)/100;
+  let label;
+  if(type==='buy'){
+    label = '<span style="font-weight:600;color:#B8860B">[XAU]</span> BELI '+oz.toFixed(2)+' oz @ $'+price.toLocaleString('en-US',{minimumFractionDigits:2})+' &bull; $'+val.toLocaleString('en-US',{minimumFractionDigits:2});
+  } else {
+    const pnl  = Math.round((price-(ag.avg_price||0))*oz*100)/100;
+    const pCol = pnl>=0?'#1D9E75':'#E24B4A';
+    label = '<span style="font-weight:600;color:#B8860B">[XAU]</span> JUAL '+oz.toFixed(2)+' oz @ $'+price.toLocaleString('en-US',{minimumFractionDigits:2})+' &bull; <span style="color:'+pCol+'">'+(pnl>=0?'+':'')+pnl.toFixed(2)+'</span>';
+  }
+  const d = document.createElement('div');
+  d.className = 'log-item '+type;
+  d.dataset.agent = name;
+  d.innerHTML = '<span class="log-who" style="color:'+COLORS[name]+'">'+name+'</span> <span class="log-act '+type+'">'+type.toUpperCase()+'</span> <span class="log-txt">'+label+'</span><span class="log-ts">'+ts+'</span>';
+  el.insertBefore(d, el.firstChild);
+  if(el.children.length>25) el.removeChild(el.lastChild);
+  applyFilter();
+}
+
+function updateRank(agents){
+  const data = Object.entries(agents).map(([name,ag])=>({name,pf:ag.portfolio,pnl:ag.portfolio-MODAL_USD})).sort((a,b)=>b.pf-a.pf);
+  const rl = document.getElementById('rankList');
+  rl.innerHTML='';
+  data.forEach((r,i)=>{
+    const d = document.createElement('div');
+    d.className='rank-row';
+    d.innerHTML='<span class="rank-num">'+(i+1)+'</span><span class="dot" style="background:'+COLORS[r.name]+'"></span><span style="flex:1;font-weight:500">'+(i===0?'&#128081; ':'')+r.name+'</span><span style="font-weight:500;color:'+(r.pnl>=0?'var(--green)':'var(--red)')+'">'+fmtSUSD(r.pnl)+'</span>';
+    rl.appendChild(d);
+  });
+}
+
+function openModal(name){
+  const ag = latestAgents[name];
+  if(!ag) return;
+  const pnl = ag.portfolio - MODAL_USD;
+  const pCol = pnl>=0?'#1D9E75':'#E24B4A';
+  const rows = [
+    ['Pair',          'XAU/USD (Gold Futures)'],
+    ['Harga Sekarang','$'+currentPrice.toLocaleString('en-US',{minimumFractionDigits:2})],
+    ['Kas Tersisa',   fmtUSD(ag.cash)],
+    ['Posisi',        ag.positions>0 ? ag.positions.toFixed(2)+' oz @ $'+ag.avg_price.toFixed(2) : '—'],
+    ['Nilai Posisi',  ag.positions>0 ? fmtUSD(ag.positions*currentPrice) : '—'],
+    ['Total Portfolio',fmtUSD(ag.portfolio)],
+    ['P&amp;L',       '<span style="color:'+pCol+'">'+(pnl>=0?'+':'')+pnl.toFixed(2)+' ('+ag.pnl_pct.toFixed(2)+'%)</span>'],
+    ['Jumlah Trades', ag.trades+' transaksi'],
+  ];
+  document.getElementById('modalTitle').innerHTML='<span style="color:'+COLORS[name]+'">&#9679;</span> '+name.charAt(0).toUpperCase()+name.slice(1)+' — XAU/USD Portfolio';
+  document.getElementById('modalBody').innerHTML=rows.map(function(r){return '<div class="modal-row"><span class="modal-lbl">'+r[0]+'</span><span class="modal-val">'+r[1]+'</span></div>';}).join('');
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal(e){ if(e.target===document.getElementById('modalOverlay')) document.getElementById('modalOverlay').classList.remove('open'); }
+
+let activeFilter='all';
+function applyFilter(){
+  document.querySelectorAll('#logList .log-item').forEach(function(el){
+    el.style.display=(activeFilter==='all'||el.dataset.agent===activeFilter)?'':'none';
+  });
+}
+document.getElementById('logFilters').addEventListener('click',function(e){
+  const btn=e.target.closest('.log-filter');
+  if(!btn) return;
+  document.querySelectorAll('.log-filter').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  activeFilter=btn.dataset.filter;
+  applyFilter();
+});
+
+function handleTick(data){
+  if(!firstPrice && data.price) firstPrice=data.price;
+  currentPrice = data.price;
+  latestAgents = data.agents;
+
+  document.getElementById('curPrice').textContent='$'+data.price.toLocaleString('en-US',{minimumFractionDigits:2});
+  const chg=data.change, chgPct=data.change_pct;
+  const chgEl=document.getElementById('curChg');
+  chgEl.textContent=(chg>=0?'+':'')+chg.toFixed(2)+' ('+(chgPct>=0?'+':'')+chgPct.toFixed(2)+'%)';
+  chgEl.style.color=chg>=0?'var(--green)':'var(--red)';
+
+  if(data.news && data.news!=='Menunggu berita...'){
+    const el=document.getElementById('newsTxt');
+    el.style.animation='none'; el.textContent='XAU/USD: '+data.news;
+    void el.offsetWidth; el.style.animation='scroll-left 20s linear infinite';
+  }
+
+  chart.data.labels.push('T'+data.tick);
+  chart.data.datasets[0].data.push(data.price);
+  chart.data.datasets[1].data.push(data.agents.deepseek.portfolio);
+  chart.data.datasets[2].data.push(data.agents.gemini.portfolio);
+  chart.data.datasets[3].data.push(data.agents.qwen.portfolio);
+  if(chart.data.labels.length>80){ chart.data.labels.shift(); chart.data.datasets.forEach(d=>d.data.shift()); }
+  chart.update('none');
+
+  const tb=document.getElementById('trigger-badge');
+  tb.textContent=data.trigger?'⚡ TRIGGER: '+data.trigger:'menunggu sinyal...';
+
+  const allPf=Object.values(data.agents).map(a=>a.portfolio);
+  Object.entries(data.agents).forEach(([name,ag])=>updateAgentCard(name,ag,allPf));
+  updateRank(data.agents);
+}
+
+function connect(){
+  ws=new WebSocket(WS_URL);
+  ws.onopen=()=>{ document.getElementById('status').innerHTML='<span class="dot green"></span>Terhubung · XAU/USD'; };
+  ws.onmessage=(e)=>{
+    const d=JSON.parse(e.data);
+    if(d.type==='tick'){ hideMarketBanner(); handleTick(d); }
+    else if(d.type==='market_closed'){ showMarketClosed(d); }
+  };
+  ws.onclose=()=>{ document.getElementById('status').innerHTML='<span class="dot red"></span>Terputus — mencoba ulang...'; setTimeout(connect,3000); };
+  ws.onerror=(err)=>{ console.error('[xau-ws] error',err); ws.close(); };
+}
+
+initChart();
+connect();
+</script>
+</body>
+</html>

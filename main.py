@@ -585,13 +585,313 @@ async def trading_loop():
         await asyncio.sleep(POLL_INTERVAL)
 
 
+
+# ════════════════════════════════════════════════════════════════════════════
+# XAU/USD SIMULATOR
+# ════════════════════════════════════════════════════════════════════════════
+XAU_TICKER  = "GC=F"         # Gold Futures di yfinance
+XAU_MODAL   = 10_000.0       # $10,000 modal awal per AI
+XAU_BUY_PCT = 0.20           # beli 20% kas per BUY
+XAU_MIN_OZ  = 0.1            # minimum 0.1 oz per transaksi
+
+XAU_GEMINI_SYSTEM = (
+    "Kamu adalah AI trader XAU/USD (emas). Analisis data teknikal dan berita global. "
+    "Respond HANYA dengan JSON: "
+    '{"action":"BUY"|"SELL"|"HOLD","confidence":0-100,"reason":"maks 20 kata"}'
+)
+
+XAU_NEWS_POOL = [
+    ("Fed sinyal pemangkasan suku bunga, emas menguat", 0.8),
+    ("Inflasi AS naik, dolar menguat, emas tertekan", -0.6),
+    ("Ketegangan geopolitik dorong permintaan safe haven", 0.7),
+    ("Data NFP AS kuat, dolar menguat, emas turun", -0.5),
+    ("Bank sentral global tambah cadangan emas", 0.6),
+    ("Yield obligasi AS naik, emas tertekan", -0.4),
+    ("Ketidakpastian pasar dorong aksi beli emas", 0.5),
+    ("Pelemahan dolar AS angkat harga emas spot", 0.6),
+    ("Kekhawatiran resesi global dorong safe haven", 0.7),
+    ("Data ekonomi AS solid, minat emas berkurang", -0.3),
+]
+
+
+class XauState:
+    def __init__(self):
+        self.price_history : list[float] = []
+        self.price          = 0.0
+        self.tick_count     = 0
+        self.last_news      = "Menunggu berita..."
+        self.news_sentiment = 0.0
+        self.agents         = self._init_agents()
+        self.clients        : list[WebSocket] = []
+        self.gemini_last_tick = 0
+        self.last_trigger   = ""
+
+    def _init_agents(self):
+        return {
+            name: {
+                "name":      name,
+                "cash":      XAU_MODAL,
+                "positions": 0.0,
+                "avg_price": 0.0,
+                "trades":    [],
+                "signal":    "HOLD",
+                "confidence":0,
+                "reason":    "Menunggu data...",
+            }
+            for name in ("deepseek", "gemini", "qwen")
+        }
+
+    def portfolio_value(self, name: str) -> float:
+        ag = self.agents[name]
+        return ag["cash"] + ag["positions"] * self.price
+
+    def reset(self):
+        self.price_history  = []
+        self.price          = 0.0
+        self.tick_count     = 0
+        self.gemini_last_tick = 0
+        self.last_trigger   = ""
+        self.agents         = self._init_agents()
+
+
+xau = XauState()
+
+
+def is_xau_market_open() -> bool:
+    """XAU/USD tutup Sabtu 05:00 - Senin 05:00 WIB (approx weekend close)."""
+    now = datetime.now(WIB)
+    wd  = now.weekday()
+    t   = now.time()
+    if wd == 5: return False                           # Sabtu tutup
+    if wd == 6 and t < time(5, 0): return False        # Minggu dini hari tutup
+    if wd == 4 and t >= time(23, 0): return False      # Jumat malam tutup
+    return True
+
+
+def fetch_xau_price() -> Optional[float]:
+    try:
+        price = yf.Ticker(XAU_TICKER).fast_info.get("lastPrice")
+        return round(float(price), 2) if price else None
+    except Exception as e:
+        print(f"[xau] Error fetch: {e}")
+        return None
+
+
+def fetch_xau_news() -> tuple[str, float]:
+    import random
+    return random.choice(XAU_NEWS_POOL)
+
+
+def xau_rule_deepseek() -> dict:
+    ph  = xau.price_history
+    rsi = calc_rsi(ph)
+    mom = calc_momentum(ph)
+    ag  = xau.agents["deepseek"]
+    if rsi < 35 and mom > 0:
+        return {"action": "BUY",  "confidence": int(min(88, (35-rsi)*2.5+50)),
+                "reason": f"XAU RSI oversold {rsi:.0f}, momentum positif {mom:+.1f}%"}
+    if rsi > 65 and ag["positions"] > 0:
+        return {"action": "SELL", "confidence": int(min(88, (rsi-65)*2.5+50)),
+                "reason": f"XAU RSI overbought {rsi:.0f}, potensi koreksi"}
+    return {"action": "HOLD", "confidence": 45, "reason": f"XAU RSI netral {rsi:.0f}"}
+
+
+def xau_rule_qwen() -> dict:
+    ph    = xau.price_history
+    price = xau.price
+    ma7   = calc_ma(ph, 7)
+    ma20  = calc_ma(ph, 20)
+    ag    = xau.agents["qwen"]
+    if ma7 is None or ma20 is None:
+        return {"action": "HOLD", "confidence": 30, "reason": "Data MA belum cukup"}
+    diff  = abs((ma7 - ma20) / ma20 * 100)
+    if ma7 > ma20 and price > ma7:
+        return {"action": "BUY",  "confidence": int(min(88, 55+diff*8)),
+                "reason": "XAU golden cross MA7>MA20, tren naik"}
+    if ma7 < ma20 and price < ma7 and ag["positions"] > 0:
+        return {"action": "SELL", "confidence": int(min(88, 55+diff*8)),
+                "reason": "XAU death cross MA7<MA20, tren turun"}
+    return {"action": "HOLD", "confidence": 40, "reason": "XAU MA belum konfirmasi tren"}
+
+
+def build_xau_prompt(trigger: str = "") -> str:
+    ag   = xau.agents["gemini"]
+    ph   = xau.price_history
+    rsi  = calc_rsi(ph)
+    ma7  = calc_ma(ph, 7)
+    ma20 = calc_ma(ph, 20)
+    mom  = calc_momentum(ph)
+    pos  = f"{ag['positions']:.1f}oz" if ag["positions"] > 0 else "0oz"
+    pf   = xau.portfolio_value("gemini")
+    pnl  = (pf - XAU_MODAL) / XAU_MODAL * 100
+    line = (f"XAU/USD|{xau.price:.2f}|RSI:{rsi:.0f}"
+            f"|MA7:{ma7:.1f if ma7 else '-'}|MA20:{ma20:.1f if ma20 else '-'}"
+            f"|mom:{mom:+.1f}%|news:{xau.news_sentiment:+.1f}"
+            f"|\"{xau.last_news[:40]}\"|pos:{pos}|cash:${ag['cash']:.0f}|pnl:{pnl:+.1f}%")
+    return line + (f"|trigger:{trigger}" if trigger else "")
+
+
+async def call_gemini_xau(prompt: str) -> dict:
+    if not GEMINI_API_KEY:
+        return {"action": "HOLD", "confidence": 0, "reason": "API key Gemini belum diset"}
+    async with httpx.AsyncClient(timeout=25) as client:
+        resp = await client.post(
+            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+            headers={"Content-Type": "application/json"},
+            json={
+                "system_instruction": {"parts": [{"text": XAU_GEMINI_SYSTEM}]},
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"maxOutputTokens": 80, "temperature": 0.7,
+                                     "responseMimeType": "application/json"},
+            },
+        )
+        resp.raise_for_status()
+        raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return json.loads(raw)
+
+
+def execute_xau_trade(agent_name: str, action: str, price: float):
+    ag = xau.agents[agent_name]
+    if action == "BUY" and ag["cash"] > price * XAU_MIN_OZ:
+        oz   = round(ag["cash"] * XAU_BUY_PCT / price, 2)
+        if oz < XAU_MIN_OZ:
+            return
+        cost          = oz * price
+        ag["cash"]   -= cost
+        total         = round(ag["positions"] + oz, 2)
+        ag["avg_price"] = (ag["positions"] * ag["avg_price"] + oz * price) / total
+        ag["positions"] = total
+        ag["trades"].append({"type": "BUY", "price": price, "oz": oz,
+                             "time": datetime.now().isoformat()})
+    elif action == "SELL" and ag["positions"] > 0:
+        gain          = (price - ag["avg_price"]) * ag["positions"]
+        ag["cash"]   += ag["positions"] * price
+        ag["trades"].append({"type": "SELL", "price": price, "oz": ag["positions"],
+                             "gain": gain, "time": datetime.now().isoformat()})
+        ag["positions"] = 0.0
+        ag["avg_price"] = 0.0
+
+
+async def broadcast_xau(payload: dict):
+    dead = []
+    for ws in xau.clients:
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        xau.clients.remove(ws)
+
+
+async def xau_trading_loop():
+    print("[xau] XAU/USD trading loop dimulai")
+    while True:
+        if not is_xau_market_open():
+            # Hitung next open
+            now = datetime.now(WIB)
+            wd  = now.weekday()
+            if wd == 4:  # Jumat
+                nxt = datetime.combine(now.date() + timedelta(days=3), time(5, 0), tzinfo=WIB)
+            elif wd == 5:  # Sabtu
+                nxt = datetime.combine(now.date() + timedelta(days=2), time(5, 0), tzinfo=WIB)
+            else:
+                nxt = datetime.combine(now.date() + timedelta(days=1), time(5, 0), tzinfo=WIB)
+            await broadcast_xau({"type": "market_closed", "reason": "Akhir pekan (forex tutup)",
+                                  "next_open": nxt.isoformat(), "server_ts": now.isoformat()})
+            await asyncio.sleep(60)
+            continue
+
+        price = await asyncio.get_event_loop().run_in_executor(None, fetch_xau_price)
+        if price is None:
+            await asyncio.sleep(POLL_INTERVAL)
+            continue
+
+        xau.price = price
+        xau.price_history.append(price)
+        xau.tick_count += 1
+
+        if xau.tick_count % NEWS_EVERY == 0:
+            xau.last_news, xau.news_sentiment = fetch_xau_news()
+
+        # Layer 1: Rule-based
+        if xau.tick_count % LAYER1_EVERY == 0:
+            for agent_name, rule_fn in [("deepseek", xau_rule_deepseek), ("qwen", xau_rule_qwen)]:
+                result = rule_fn()
+                xau.agents[agent_name]["signal"]     = result["action"]
+                xau.agents[agent_name]["confidence"] = result["confidence"]
+                xau.agents[agent_name]["reason"]     = result["reason"]
+                if result["action"] != "HOLD":
+                    execute_xau_trade(agent_name, result["action"], price)
+
+        # Layer 2: Gemini on trigger
+        triggers    = detect_trigger()  # reuse indikator teknikal
+        ticks_since = xau.tick_count - xau.gemini_last_tick
+        if xau.price_history and len(xau.price_history) >= 2:
+            ph   = xau.price_history
+            rsi  = calc_rsi(ph)
+            mom  = calc_momentum(ph)
+            trigs = []
+            if rsi < 30: trigs.append(f"RSI oversold {rsi:.0f}")
+            elif rsi > 70: trigs.append(f"RSI overbought {rsi:.0f}")
+            if abs(mom) > 1.5: trigs.append(f"momentum {mom:+.1f}%")
+            if abs(xau.news_sentiment) > 0.6: trigs.append(f"berita kuat {xau.news_sentiment:+.1f}")
+
+            if trigs and ticks_since >= GEMINI_COOLDOWN:
+                xau.gemini_last_tick = xau.tick_count
+                xau.last_trigger = " & ".join(trigs[:2])
+                try:
+                    result = await call_gemini_xau(build_xau_prompt(xau.last_trigger))
+                    xau.agents["gemini"]["signal"]     = result.get("action", "HOLD")
+                    xau.agents["gemini"]["confidence"] = result.get("confidence", 0)
+                    xau.agents["gemini"]["reason"]     = result.get("reason", "-")
+                    if result.get("action") != "HOLD":
+                        execute_xau_trade("gemini", result.get("action", "HOLD"), price)
+                except Exception as e:
+                    print(f"[xau:gemini] Error: {e}")
+            elif not trigs:
+                xau.last_trigger = ""
+
+        open_price = xau.price_history[0] if xau.price_history else price
+        payload = {
+            "type":      "tick",
+            "tick":      xau.tick_count,
+            "price":     round(price, 2),
+            "open":      round(open_price, 2),
+            "change":    round(price - open_price, 2),
+            "change_pct":round((price - open_price) / open_price * 100, 2),
+            "rsi":       round(calc_rsi(xau.price_history), 1),
+            "ma7":       round(calc_ma(xau.price_history, 7) or 0, 2),
+            "ma20":      round(calc_ma(xau.price_history, 20) or 0, 2),
+            "news":      xau.last_news,
+            "news_sentiment": round(xau.news_sentiment, 2),
+            "trigger":   xau.last_trigger,
+            "agents": {
+                name: {
+                    "signal":     ag["signal"],
+                    "confidence": ag["confidence"],
+                    "reason":     ag["reason"],
+                    "cash":       round(ag["cash"], 2),
+                    "positions":  round(ag["positions"], 2),
+                    "avg_price":  round(ag["avg_price"], 2),
+                    "portfolio":  round(xau.portfolio_value(name), 2),
+                    "pnl":        round(xau.portfolio_value(name) - XAU_MODAL, 2),
+                    "pnl_pct":    round((xau.portfolio_value(name) - XAU_MODAL) / XAU_MODAL * 100, 2),
+                    "trades":     len(ag["trades"]),
+                }
+                for name, ag in xau.agents.items()
+            },
+        }
+        await broadcast_xau(payload)
+        await asyncio.sleep(POLL_INTERVAL)
 # ─── FastAPI app ───────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.init_db()
-    task = asyncio.create_task(trading_loop())
+    task1 = asyncio.create_task(trading_loop())
+    task2 = asyncio.create_task(xau_trading_loop())
     yield
-    task.cancel()
+    task1.cancel()
+    task2.cancel()
 
 
 app = FastAPI(title="Z Trader", lifespan=lifespan)
@@ -638,6 +938,33 @@ async def history_prices(ticker: str, limit: int = 200):
 @app.get("/history/results")
 async def history_results(limit: int = 50):
     return await db.get_competition_results(limit)
+
+
+@app.get("/xauusd")
+def xauusd_page():
+    return FileResponse("xauusd.html")
+
+
+@app.post("/xau/reset")
+def xau_reset():
+    xau.reset()
+    return {"ok": True}
+
+
+@app.websocket("/ws/xau")
+async def xau_websocket(ws: WebSocket):
+    await ws.accept()
+    xau.clients.append(ws)
+    print(f"[xau-ws] Client terhubung. Total: {len(xau.clients)}")
+    try:
+        while True:
+            data = await ws.receive_text()
+            msg  = json.loads(data)
+            if msg.get("action") == "reset":
+                xau.reset()
+    except WebSocketDisconnect:
+        xau.clients.remove(ws)
+        print(f"[xau-ws] Client terputus. Total: {len(xau.clients)}")
 
 
 @app.websocket("/ws")
