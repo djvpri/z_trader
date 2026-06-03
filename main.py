@@ -1,4 +1,4 @@
-"""
+﻿"""
 Z Trader — Backend
 ===================
 Stack  : FastAPI + uvicorn
@@ -17,6 +17,7 @@ from typing import Optional
 import httpx
 import yfinance as yf
 from dotenv import load_dotenv
+import database as db
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -34,8 +35,11 @@ POLL_INTERVAL   = 5             # detik antar fetch harga
 LAYER1_EVERY    = 2             # Layer 1 setiap N tick
 GEMINI_COOLDOWN = 6             # minimum tick jeda antar panggilan Gemini
 NEWS_EVERY      = 6             # update berita setiap N tick
-LOT_SIZE        = 100           # 1 lot = 100 lembar
-BUY_FRACTION    = 0.35          # pakai 35% kas per BUY
+LOT_SIZE         = 100    # 1 lot = 100 lembar
+BUY_FRACTION     = 0.35   # pakai 35% kas per BUY
+SNAPSHOT_EVERY   = 12     # simpan snapshot portofolio setiap N tick (~60 detik)
+PRICE_SAVE_EVERY = 6      # simpan harga ke DB setiap N tick (~30 detik)
+RESULT_EVERY     = 60     # simpan hasil kompetisi setiap N tick (~5 menit)
 
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 GEMINI_URL   = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
@@ -324,7 +328,7 @@ async def call_gemini(prompt: str) -> dict:
 
 
 # ─── Eksekusi trade ────────────────────────────────────────────────────────────
-def execute_trade(agent_name: str, ticker: str, action: str, price: float):
+async def execute_trade(agent_name: str, ticker: str, action: str, price: float):
     ag = sim.agents[agent_name]
     h  = ag["holdings"][ticker]
 
@@ -332,23 +336,26 @@ def execute_trade(agent_name: str, ticker: str, action: str, price: float):
         lots = int(ag["cash"] * BUY_FRACTION / (price * LOT_SIZE))
         if lots < 1:
             return
-        cost         = lots * LOT_SIZE * price
-        ag["cash"]  -= cost
-        total        = h["positions"] + lots * LOT_SIZE
+        cost           = lots * LOT_SIZE * price
+        ag["cash"]    -= cost
+        total          = h["positions"] + lots * LOT_SIZE
         h["avg_price"] = (h["positions"] * h["avg_price"] + lots * LOT_SIZE * price) / total
         h["positions"] = total
         ag["trades"].append({
             "type": "BUY", "ticker": ticker, "price": price,
             "lots": lots, "time": datetime.now().isoformat(),
         })
+        await db.save_transaction(agent_name, ticker, "BUY", price, lots)
+
     elif action == "SELL" and h["positions"] > 0:
+        lots_sold   = h["positions"] // LOT_SIZE
         gain        = (price - h["avg_price"]) * h["positions"]
         ag["cash"] += h["positions"] * price
         ag["trades"].append({
             "type": "SELL", "ticker": ticker, "price": price,
-            "lots": h["positions"] // LOT_SIZE,
-            "gain": gain, "time": datetime.now().isoformat(),
+            "lots": lots_sold, "gain": gain, "time": datetime.now().isoformat(),
         })
+        await db.save_transaction(agent_name, ticker, "SELL", price, lots_sold, gain)
         h["positions"] = 0
         h["avg_price"] = 0.0
 
@@ -428,7 +435,7 @@ async def trading_loop():
                 if result["action"] != "HOLD":
                     price = sim.prices.get(result["ticker"], 0)
                     if price:
-                        execute_trade(agent_name, result["ticker"], result["action"], price)
+                        await execute_trade(agent_name, result["ticker"], result["action"], price)
 
         # ── Layer 2: Gemini saat trigger ──
         triggers    = detect_trigger()
@@ -448,7 +455,7 @@ async def trading_loop():
                 sim.agents["gemini"]["reason"]      = result.get("reason", "-")
                 sim.agents["gemini"]["last_ticker"] = ticker
                 if action != "HOLD" and sim.prices.get(ticker):
-                    execute_trade("gemini", ticker, action, sim.prices[ticker])
+                    await execute_trade("gemini", ticker, action, sim.prices[ticker])
             except Exception as e:
                 print(f"[AI:gemini] Error: {e}")
         elif not triggers:
@@ -486,12 +493,43 @@ async def trading_loop():
         }
 
         await broadcast(payload)
+
+        # ── Simpan ke DB secara berkala ──
+        if sim.tick_count % PRICE_SAVE_EVERY == 0:
+            await db.save_prices({t: round(p, 2) for t, p in sim.prices.items() if p})
+
+        if sim.tick_count % SNAPSHOT_EVERY == 0:
+            snapshots = [
+                {
+                    "name":      name,
+                    "portfolio": round(sim.portfolio_value(name)),
+                    "cash":      round(ag["cash"]),
+                    "pnl":       round(sim.portfolio_value(name) - MODAL),
+                    "pnl_pct":   round((sim.portfolio_value(name) - MODAL) / MODAL * 100, 2),
+                }
+                for name, ag in sim.agents.items()
+            ]
+            await db.save_portfolio_snapshots(snapshots)
+
+        if sim.tick_count % RESULT_EVERY == 0:
+            results = [
+                {
+                    "name":      name,
+                    "portfolio": round(sim.portfolio_value(name)),
+                    "pnl":       round(sim.portfolio_value(name) - MODAL),
+                    "trades":    len(ag["trades"]),
+                }
+                for name, ag in sim.agents.items()
+            ]
+            await db.save_competition_results(results)
+
         await asyncio.sleep(POLL_INTERVAL)
 
 
 # ─── FastAPI app ───────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await db.init_db()
     task = asyncio.create_task(trading_loop())
     yield
     task.cancel()
@@ -521,6 +559,26 @@ def status():
 def reset():
     sim.reset()
     return {"ok": True}
+
+
+@app.get("/history/transactions")
+async def history_transactions(agent: str = None, limit: int = 100):
+    return await db.get_transactions(agent, limit)
+
+
+@app.get("/history/portfolio")
+async def history_portfolio(agent: str = None, limit: int = 200):
+    return await db.get_portfolio_history(agent, limit)
+
+
+@app.get("/history/prices/{ticker}")
+async def history_prices(ticker: str, limit: int = 200):
+    return await db.get_price_history(ticker, limit)
+
+
+@app.get("/history/results")
+async def history_results(limit: int = 50):
+    return await db.get_competition_results(limit)
 
 
 @app.websocket("/ws")
