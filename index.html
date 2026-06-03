@@ -97,6 +97,9 @@
   .modal-val{font-weight:500}
   .ai-card{cursor:pointer;transition:box-shadow .15s}
   .ai-card:hover{box-shadow:0 4px 16px rgba(0,0,0,0.10)}
+  .log-filter{background:none;border:0.5px solid var(--border);border-radius:6px;
+              padding:2px 8px;font-size:10px;cursor:pointer;color:var(--muted);transition:all .15s}
+  .log-filter.active{background:var(--text);color:var(--bg);border-color:var(--text)}
   .prices-strip{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:.6rem}
   .price-chip{background:var(--card);border:0.5px solid var(--border);border-radius:8px;
               padding:4px 10px;font-size:11px;cursor:pointer;transition:border-color .15s}
@@ -176,7 +179,15 @@
 
 <div class="bottom">
   <div class="panel">
-    <div class="panel-title">LOG TRANSAKSI</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <span class="panel-title" style="margin-bottom:0">LOG TRANSAKSI</span>
+      <div id="logFilters" style="display:flex;gap:4px">
+        <button class="log-filter active" data-filter="all">Semua</button>
+        <button class="log-filter" data-filter="deepseek" style="color:#378ADD">DeepSeek</button>
+        <button class="log-filter" data-filter="gemini" style="color:#1D9E75">Gemini</button>
+        <button class="log-filter" data-filter="qwen" style="color:#D85A30">Qwen</button>
+      </div>
+    </div>
     <div class="log-list" id="logList"><p style="font-size:11px;color:var(--muted)">Belum ada transaksi.</p></div>
   </div>
   <div class="panel">
@@ -193,6 +204,7 @@ const WS_URL  = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + locat
 
 let chart, ws;
 let focusedTicker  = 'BBCA.JK';
+let activeFilter   = 'all';
 let lastSignals    = {deepseek:'HOLD', gemini:'HOLD', qwen:'HOLD'};
 let prevTrades     = {deepseek:0, gemini:0, qwen:0};
 let prevHoldings   = {deepseek:{}, gemini:{}, qwen:{}};
@@ -326,6 +338,7 @@ function addLog(name, type, lots, ticker, price, ag){
     +' <span class="log-ts">'+ts+'</span>';
   el.insertBefore(d, el.firstChild);
   if(el.children.length > 25) el.removeChild(el.lastChild);
+  applyFilter();
 }
 
 function updateRank(agents){
@@ -441,6 +454,21 @@ function connect(){
   };
   ws.onerror = (err)=>{ console.error('[ws] error', err); ws.close(); };
 }
+
+function applyFilter(){
+  document.querySelectorAll('#logList .log-item').forEach(function(el){
+    el.style.display = (activeFilter === 'all' || el.dataset.agent === activeFilter) ? '' : 'none';
+  });
+}
+
+document.getElementById('logFilters').addEventListener('click', function(e){
+  const btn = e.target.closest('.log-filter');
+  if(!btn) return;
+  document.querySelectorAll('.log-filter').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  activeFilter = btn.dataset.filter;
+  applyFilter();
+});
 
 initChart();
 connect();
