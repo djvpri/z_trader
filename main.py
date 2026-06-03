@@ -902,10 +902,10 @@ async def xau_trading_loop():
             rsi  = calc_rsi(ph)
             mom  = calc_momentum(ph)
             trigs = []
-            if rsi < 30: trigs.append(f"RSI oversold {rsi:.0f}")
-            elif rsi > 70: trigs.append(f"RSI overbought {rsi:.0f}")
-            if abs(mom) > 1.5: trigs.append(f"momentum {mom:+.1f}%")
-            if abs(xau.news_sentiment) > 0.6: trigs.append(f"berita kuat {xau.news_sentiment:+.1f}")
+            if rsi < 40: trigs.append(f"RSI oversold {rsi:.0f}")
+            elif rsi > 60: trigs.append(f"RSI overbought {rsi:.0f}")
+            if abs(mom) > 0.5: trigs.append(f"momentum {mom:+.1f}%")
+            if abs(xau.news_sentiment) > 0.4: trigs.append(f"berita {xau.news_sentiment:+.1f}")
 
             if trigs and ticks_since >= GEMINI_COOLDOWN:
                 xau.gemini_last_tick = xau.tick_count
