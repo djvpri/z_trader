@@ -1,0 +1,12 @@
+Ini arsitektur lengkapnya. Aliran datanya dari atas ke bawah:
+Layer 1 — Data source: Yahoo Finance (gratis, via yfinance) atau Stockbit API (real-time IDX), plus news scraper dari Bisnis.com / CNBC Indonesia untuk sentimen fundamental.
+Layer 2 — Backend FastAPI: Tiga komponen berjalan paralel — price fetcher polling tiap 5 detik, indicator engine menghitung RSI/MA/momentum dari data baru, dan news parser menganalisa sentimen berita. Semua hasilnya dikumpulkan ke AI dispatcher.
+Layer 3 — AI layer: Dispatcher mengirim konteks yang sama ke tiga model secara async paralel — DeepSeek, Claude, Qwen — lalu response aggregator mengumpulkan jawaban JSON dari ketiganya.
+Layer 4 — Frontend: Data dikirim real-time via WebSocket ke browser, memperbarui chart harga, kartu AI (keputusan + reasoning), dan trade log secara bersamaan.
+Stack teknologi yang direkomendasikan:
+
+FastAPI + uvicorn untuk backend Python
+yfinance atau httpx untuk fetch harga
+websockets untuk push ke browser
+asyncio.gather() untuk memanggil tiga AI paralel
+React atau HTML vanilla untuk frontend

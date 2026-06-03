@@ -1,0 +1,7 @@
+Kode backend sudah siap didownload. Isi ZIP-nya:
+
+main.py — FastAPI backend lengkap: polling harga via yfinance, hitung RSI/MA/momentum, panggil DeepSeek + Claude + Qwen secara async paralel, broadcast via WebSocket
+index.html — Frontend siap pakai: Chart.js real-time, kartu 3 AI, log transaksi, peringkat
+requirements.txt — semua dependency Python
+.env.example — template API key
+README.md — panduan lengkap

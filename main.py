@@ -1,0 +1,539 @@
+"""
+Z Trader — Backend
+===================
+Stack  : FastAPI + uvicorn
+Data   : yfinance (gratis)
+AI     : DeepSeek (RSI Bot), Gemini (Google), Qwen (MA Bot) — multi-saham independen
+Push   : WebSocket broadcast ke semua client yang terhubung
+"""
+
+import asyncio
+import json
+import os
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Optional
+
+import httpx
+import yfinance as yf
+from dotenv import load_dotenv
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+
+load_dotenv()
+
+# ─── Konfigurasi API key ──────────────────────────────────────────────────────
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+GEMINI_API_KEY   = os.getenv("GEMINI_API_KEY", "")
+QWEN_API_KEY     = os.getenv("QWEN_API_KEY", "")
+
+# ─── Konstanta ────────────────────────────────────────────────────────────────
+MODAL           = 100_000_000   # Rp 100 juta modal awal per AI
+POLL_INTERVAL   = 5             # detik antar fetch harga
+LAYER1_EVERY    = 2             # Layer 1 setiap N tick
+GEMINI_COOLDOWN = 6             # minimum tick jeda antar panggilan Gemini
+NEWS_EVERY      = 6             # update berita setiap N tick
+LOT_SIZE        = 100           # 1 lot = 100 lembar
+BUY_FRACTION    = 0.35          # pakai 35% kas per BUY
+
+DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
+GEMINI_URL   = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+QWEN_URL     = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+
+GEMINI_SYSTEM = (
+    "Kamu adalah AI trader saham IDX dengan portofolio multi-saham. "
+    "Pilih saham terbaik untuk ditrade berdasarkan data teknikal dan berita. "
+    "Respond HANYA dengan JSON: "
+    '{"ticker":"KODE.JK","action":"BUY"|"SELL"|"HOLD","confidence":0-100,"reason":"maks 20 kata"}'
+)
+
+FUNDAMENTAL = {
+    "BBCA.JK": {"PE": "23.4x", "PBV": "4.1x", "ROE": "18.2%", "DY": "2.1%", "rating": "Strong Buy"},
+    "TLKM.JK": {"PE": "13.2x", "PBV": "2.3x", "ROE": "17.5%", "DY": "5.4%", "rating": "Hold"},
+    "ASII.JK": {"PE": "11.8x", "PBV": "1.6x", "ROE": "14.8%", "DY": "4.2%", "rating": "Buy"},
+    "BBRI.JK": {"PE": "14.1x", "PBV": "2.2x", "ROE": "15.9%", "DY": "5.8%", "rating": "Buy"},
+    "GOTO.JK": {"PE": "N/A",   "PBV": "3.8x", "ROE": "-4.2%", "DY": "0%",   "rating": "Speculative"},
+}
+TICKERS = list(FUNDAMENTAL.keys())
+
+
+# ─── State global ──────────────────────────────────────────────────────────────
+class SimState:
+    def __init__(self):
+        self.prices        : dict[str, float]       = {t: 0.0 for t in TICKERS}
+        self.price_history : dict[str, list[float]] = {t: []  for t in TICKERS}
+        self.tick_count    = 0
+        self.last_news     : dict[str, str]   = {t: "Menunggu berita..." for t in TICKERS}
+        self.news_sentiment: dict[str, float] = {t: 0.0 for t in TICKERS}
+        self.agents        = self._init_agents()
+        self.clients       : list[WebSocket]  = []
+        self.gemini_last_tick = 0
+        self.last_trigger     = ""
+
+    def _init_agents(self):
+        return {
+            name: {
+                "name":        name,
+                "cash":        MODAL,
+                "holdings":    {t: {"positions": 0, "avg_price": 0.0} for t in TICKERS},
+                "trades":      [],
+                "signal":      "HOLD",
+                "confidence":  0,
+                "reason":      "Menunggu data...",
+                "last_ticker": TICKERS[0],
+            }
+            for name in ("deepseek", "gemini", "qwen")
+        }
+
+    def portfolio_value(self, name: str) -> float:
+        ag    = self.agents[name]
+        total = ag["cash"]
+        for t, h in ag["holdings"].items():
+            total += h["positions"] * self.prices.get(t, 0)
+        return total
+
+    def reset(self):
+        self.prices         = {t: 0.0 for t in TICKERS}
+        self.price_history  = {t: []  for t in TICKERS}
+        self.tick_count     = 0
+        self.gemini_last_tick = 0
+        self.last_trigger   = ""
+        self.agents         = self._init_agents()
+
+
+sim = SimState()
+
+
+# ─── Utilitas teknikal ─────────────────────────────────────────────────────────
+def calc_ma(prices: list[float], n: int) -> Optional[float]:
+    if len(prices) < n:
+        return None
+    return sum(prices[-n:]) / n
+
+
+def calc_rsi(prices: list[float], n: int = 14) -> float:
+    if len(prices) < n + 1:
+        return 50.0
+    gains, losses = 0.0, 0.0
+    for i in range(len(prices) - n, len(prices)):
+        d = prices[i] - prices[i - 1]
+        if d > 0: gains  += d
+        else:     losses += abs(d)
+    if losses == 0:
+        return 100.0
+    return 100 - (100 / (1 + gains / losses))
+
+
+def calc_momentum(prices: list[float], n: int = 5) -> float:
+    if len(prices) < n + 1:
+        return 0.0
+    return (prices[-1] - prices[-1 - n]) / prices[-1 - n] * 100
+
+
+def calc_bollinger(prices: list[float], n: int = 20, k: float = 2.0):
+    if len(prices) < n:
+        return None, None, None
+    window = prices[-n:]
+    mid    = sum(window) / n
+    std    = (sum((p - mid) ** 2 for p in window) / n) ** 0.5
+    return mid, mid + k * std, mid - k * std
+
+
+# ─── Fetch semua harga secara paralel ─────────────────────────────────────────
+async def fetch_all_prices() -> dict[str, float]:
+    loop = asyncio.get_event_loop()
+
+    def get_price(ticker: str):
+        try:
+            price = yf.Ticker(ticker).fast_info.get("lastPrice")
+            return ticker, float(price) if price else None
+        except Exception as e:
+            print(f"[price] Error {ticker}: {e}")
+            return ticker, None
+
+    tasks   = [loop.run_in_executor(None, get_price, t) for t in TICKERS]
+    results = await asyncio.gather(*tasks)
+    return {t: p for t, p in results if p is not None}
+
+
+# ─── Fetch berita ──────────────────────────────────────────────────────────────
+def fetch_news(ticker: str) -> tuple[str, float]:
+    import random
+    NEWS_POOL = {
+        "BBCA.JK": [
+            ("BI turunkan suku bunga 25bps, positif untuk perbankan", 0.6),
+            ("BBCA catat kredit naik 12% YoY di Q1", 0.5),
+            ("NPL industri perbankan naik tipis ke 2.8%", -0.4),
+            ("BBCA bagikan dividen interim Rp 100/saham", 0.7),
+        ],
+        "TLKM.JK": [
+            ("TLKM menangkan tender jaringan 5G di 10 kota", 0.8),
+            ("Churn rate IndiHome meningkat di Q2", -0.5),
+            ("TLKM rilis layanan enterprise AI untuk korporasi", 0.6),
+            ("Persaingan dari Indosat semakin ketat", -0.3),
+        ],
+        "ASII.JK": [
+            ("Penjualan mobil nasional naik 6% di Mei", 0.5),
+            ("ASII umumkan kemitraan dengan BYD untuk EV", 0.7),
+            ("Kenaikan harga nikel tekan margin ASII", -0.4),
+            ("Laba ASII Q1 tumbuh 9% melampaui ekspektasi", 0.6),
+        ],
+        "BBRI.JK": [
+            ("BBRI perluas KUR ke 500 ribu UMKM baru", 0.6),
+            ("NPL BBRI naik ke 3.1%, pasar cemas", -0.6),
+            ("Kredit mikro BBRI tumbuh 22% YoY", 0.5),
+            ("Laba BBRI Q1 sedikit di bawah konsensus", -0.3),
+        ],
+        "GOTO.JK": [
+            ("GOTO raih profitabilitas EBITDA adjusted pertama", 0.9),
+            ("Persaingan ShopeeFood menekan margin Gofood", -0.5),
+            ("GOTO umumkan program buyback saham", 0.6),
+            ("Investor asing nett sell GOTO 3 hari berturut", -0.7),
+        ],
+    }
+    pool = NEWS_POOL.get(ticker, [("Tidak ada berita tersedia", 0.0)])
+    return random.choice(pool)
+
+
+# ─── Rule-based Layer 1 ────────────────────────────────────────────────────────
+def rule_deepseek(agent_name: str) -> dict:
+    """RSI + Momentum: scan semua ticker, pilih sinyal terkuat."""
+    ag         = sim.agents[agent_name]
+    best       = {"ticker": TICKERS[0], "action": "HOLD", "confidence": 40, "reason": "RSI semua saham netral"}
+    best_score = 0
+
+    for t in TICKERS:
+        ph    = sim.price_history[t]
+        price = sim.prices.get(t, 0)
+        if not price or len(ph) < 2:
+            continue
+        rsi = calc_rsi(ph)
+        mom = calc_momentum(ph)
+        h   = ag["holdings"][t]
+
+        if rsi < 35 and mom > 0:
+            score = (35 - rsi) * 2 + mom
+            if score > best_score:
+                best_score = score
+                best = {
+                    "ticker": t, "action": "BUY",
+                    "confidence": int(min(88, (35 - rsi) * 2.5 + 50)),
+                    "reason": f"{t.replace('.JK','')} RSI oversold {rsi:.0f}, mom {mom:+.1f}%",
+                }
+        elif rsi > 65 and h["positions"] > 0:
+            score = (rsi - 65) * 2
+            if score > best_score:
+                best_score = score
+                best = {
+                    "ticker": t, "action": "SELL",
+                    "confidence": int(min(88, (rsi - 65) * 2.5 + 50)),
+                    "reason": f"{t.replace('.JK','')} RSI overbought {rsi:.0f}",
+                }
+    return best
+
+
+def rule_qwen(agent_name: str) -> dict:
+    """MA Crossover: scan semua ticker, pilih crossover terkuat."""
+    ag         = sim.agents[agent_name]
+    best       = {"ticker": TICKERS[0], "action": "HOLD", "confidence": 35, "reason": "MA belum konfirmasi tren"}
+    best_score = 0
+
+    for t in TICKERS:
+        ph    = sim.price_history[t]
+        price = sim.prices.get(t, 0)
+        if not price or len(ph) < 20:
+            continue
+        ma7  = calc_ma(ph, 7)
+        ma20 = calc_ma(ph, 20)
+        if ma7 is None or ma20 is None:
+            continue
+        h        = ag["holdings"][t]
+        diff_pct = abs((ma7 - ma20) / ma20 * 100)
+
+        if ma7 > ma20 and price > ma7:
+            if diff_pct > best_score:
+                best_score = diff_pct
+                best = {
+                    "ticker": t, "action": "BUY",
+                    "confidence": int(min(88, 55 + diff_pct * 8)),
+                    "reason": f"{t.replace('.JK','')} golden cross MA7>MA20",
+                }
+        elif ma7 < ma20 and price < ma7 and h["positions"] > 0:
+            if diff_pct > best_score:
+                best_score = diff_pct
+                best = {
+                    "ticker": t, "action": "SELL",
+                    "confidence": int(min(88, 55 + diff_pct * 8)),
+                    "reason": f"{t.replace('.JK','')} death cross MA7<MA20",
+                }
+    return best
+
+
+# ─── Gemini API ────────────────────────────────────────────────────────────────
+def build_prompt(agent_name: str, trigger: str = "") -> str:
+    ag    = sim.agents[agent_name]
+    lines = []
+    for t in TICKERS:
+        ph    = sim.price_history[t]
+        price = sim.prices.get(t, 0)
+        if not price or len(ph) < 2:
+            continue
+        rsi  = calc_rsi(ph)
+        ma7  = calc_ma(ph, 7)
+        ma20 = calc_ma(ph, 20)
+        mom  = calc_momentum(ph)
+        h    = ag["holdings"][t]
+        pos  = f"{h['positions']//LOT_SIZE}lot" if h["positions"] > 0 else "0lot"
+        ma7_s  = f"{ma7:.0f}"  if ma7  else "-"
+        ma20_s = f"{ma20:.0f}" if ma20 else "-"
+        news_s = f"{sim.news_sentiment[t]:+.1f}"
+        lines.append(
+            f"{t}|{price:.0f}|RSI:{rsi:.0f}|MA7:{ma7_s}|MA20:{ma20_s}"
+            f"|mom:{mom:+.1f}%|news:{news_s}|pos:{pos}"
+        )
+    pf      = sim.portfolio_value(agent_name)
+    pnl_pct = (pf - MODAL) / MODAL * 100
+    kas_m   = f"{ag['cash']/1_000_000:.1f}M"
+    summary = "\n".join(lines) + f"\nkas:{kas_m}|pnl:{pnl_pct:+.1f}%"
+    if trigger:
+        summary += f"\ntrigger:{trigger}"
+    return summary
+
+
+async def call_gemini(prompt: str) -> dict:
+    if not GEMINI_API_KEY:
+        return {"ticker": TICKERS[0], "action": "HOLD", "confidence": 0, "reason": "API key Gemini belum diset"}
+    async with httpx.AsyncClient(timeout=25) as client:
+        resp = await client.post(
+            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+            headers={"Content-Type": "application/json"},
+            json={
+                "system_instruction": {"parts": [{"text": GEMINI_SYSTEM}]},
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "maxOutputTokens": 80,
+                    "temperature": 0.7,
+                    "responseMimeType": "application/json",
+                },
+            },
+        )
+        resp.raise_for_status()
+        raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return json.loads(raw)
+
+
+# ─── Eksekusi trade ────────────────────────────────────────────────────────────
+def execute_trade(agent_name: str, ticker: str, action: str, price: float):
+    ag = sim.agents[agent_name]
+    h  = ag["holdings"][ticker]
+
+    if action == "BUY" and ag["cash"] > price * LOT_SIZE:
+        lots = int(ag["cash"] * BUY_FRACTION / (price * LOT_SIZE))
+        if lots < 1:
+            return
+        cost         = lots * LOT_SIZE * price
+        ag["cash"]  -= cost
+        total        = h["positions"] + lots * LOT_SIZE
+        h["avg_price"] = (h["positions"] * h["avg_price"] + lots * LOT_SIZE * price) / total
+        h["positions"] = total
+        ag["trades"].append({
+            "type": "BUY", "ticker": ticker, "price": price,
+            "lots": lots, "time": datetime.now().isoformat(),
+        })
+    elif action == "SELL" and h["positions"] > 0:
+        gain        = (price - h["avg_price"]) * h["positions"]
+        ag["cash"] += h["positions"] * price
+        ag["trades"].append({
+            "type": "SELL", "ticker": ticker, "price": price,
+            "lots": h["positions"] // LOT_SIZE,
+            "gain": gain, "time": datetime.now().isoformat(),
+        })
+        h["positions"] = 0
+        h["avg_price"] = 0.0
+
+
+# ─── Deteksi trigger Gemini ───────────────────────────────────────────────────
+def detect_trigger() -> list[str]:
+    for t in TICKERS:
+        ph    = sim.price_history[t]
+        price = sim.prices.get(t, 0)
+        if not price or len(ph) < 2:
+            continue
+        rsi          = calc_rsi(ph)
+        ma20         = calc_ma(ph, 20)
+        mom          = calc_momentum(ph)
+        _, bbu, bbl  = calc_bollinger(ph)
+        prev         = ph[-2]
+        short        = t.replace(".JK", "")
+
+        if rsi < 30:
+            return [f"{short} RSI oversold {rsi:.0f}"]
+        if rsi > 70:
+            return [f"{short} RSI overbought {rsi:.0f}"]
+        if ma20 and prev < ma20 <= price:
+            return [f"{short} tembus MA20 ke atas"]
+        if ma20 and prev > ma20 >= price:
+            return [f"{short} tembus MA20 ke bawah"]
+        if bbu and price > bbu:
+            return [f"{short} Bollinger breakout atas"]
+        if bbl and price < bbl:
+            return [f"{short} Bollinger breakout bawah"]
+        if abs(mom) > 2.0:
+            return [f"{short} momentum ekstrem {mom:+.1f}%"]
+        if abs(sim.news_sentiment[t]) > 0.6:
+            return [f"{short} berita kuat {sim.news_sentiment[t]:+.1f}"]
+    return []
+
+
+# ─── Broadcast ────────────────────────────────────────────────────────────────
+async def broadcast(payload: dict):
+    dead = []
+    for ws in sim.clients:
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        sim.clients.remove(ws)
+
+
+# ─── Loop utama simulasi ──────────────────────────────────────────────────────
+async def trading_loop():
+    print("[loop] Trading loop dimulai — mode multi-saham")
+    while True:
+        new_prices = await fetch_all_prices()
+        if not new_prices:
+            await asyncio.sleep(POLL_INTERVAL)
+            continue
+
+        sim.prices.update(new_prices)
+        for t, p in new_prices.items():
+            sim.price_history[t].append(p)
+        sim.tick_count += 1
+
+        # Update berita berkala
+        if sim.tick_count % NEWS_EVERY == 0:
+            for t in TICKERS:
+                sim.last_news[t], sim.news_sentiment[t] = fetch_news(t)
+
+        # ── Layer 1: Rule-based (setiap LAYER1_EVERY tick) ──
+        if sim.tick_count % LAYER1_EVERY == 0:
+            for agent_name, rule_fn in [("deepseek", rule_deepseek), ("qwen", rule_qwen)]:
+                result = rule_fn(agent_name)
+                sim.agents[agent_name]["signal"]      = result["action"]
+                sim.agents[agent_name]["confidence"]  = result["confidence"]
+                sim.agents[agent_name]["reason"]      = result["reason"]
+                sim.agents[agent_name]["last_ticker"] = result["ticker"]
+                if result["action"] != "HOLD":
+                    price = sim.prices.get(result["ticker"], 0)
+                    if price:
+                        execute_trade(agent_name, result["ticker"], result["action"], price)
+
+        # ── Layer 2: Gemini saat trigger ──
+        triggers    = detect_trigger()
+        ticks_since = sim.tick_count - sim.gemini_last_tick
+        if triggers and ticks_since >= GEMINI_COOLDOWN:
+            sim.gemini_last_tick = sim.tick_count
+            sim.last_trigger     = " & ".join(triggers[:2])
+            print(f"[trigger] tick={sim.tick_count} → {sim.last_trigger}")
+            try:
+                result = await call_gemini(build_prompt("gemini", sim.last_trigger))
+                ticker = result.get("ticker", TICKERS[0])
+                action = result.get("action", "HOLD")
+                if ticker not in TICKERS:
+                    ticker = TICKERS[0]
+                sim.agents["gemini"]["signal"]      = action
+                sim.agents["gemini"]["confidence"]  = result.get("confidence", 0)
+                sim.agents["gemini"]["reason"]      = result.get("reason", "-")
+                sim.agents["gemini"]["last_ticker"] = ticker
+                if action != "HOLD" and sim.prices.get(ticker):
+                    execute_trade("gemini", ticker, action, sim.prices[ticker])
+            except Exception as e:
+                print(f"[AI:gemini] Error: {e}")
+        elif not triggers:
+            sim.last_trigger = ""
+
+        # ── Susun payload ──
+        payload = {
+            "type":    "tick",
+            "tick":    sim.tick_count,
+            "prices":  {t: round(p, 2) for t, p in sim.prices.items() if p},
+            "trigger": sim.last_trigger,
+            "news":    {t: {"text": sim.last_news[t], "sentiment": round(sim.news_sentiment[t], 2)} for t in TICKERS},
+            "agents": {
+                name: {
+                    "signal":      ag["signal"],
+                    "confidence":  ag["confidence"],
+                    "reason":      ag["reason"],
+                    "last_ticker": ag["last_ticker"],
+                    "cash":        round(ag["cash"]),
+                    "holdings": {
+                        t: {
+                            "positions": h["positions"] // LOT_SIZE,
+                            "avg_price": round(h["avg_price"], 2),
+                            "value":     round(h["positions"] * sim.prices.get(t, 0)),
+                        }
+                        for t, h in ag["holdings"].items() if h["positions"] > 0
+                    },
+                    "portfolio": round(sim.portfolio_value(name)),
+                    "pnl":       round(sim.portfolio_value(name) - MODAL),
+                    "pnl_pct":   round((sim.portfolio_value(name) - MODAL) / MODAL * 100, 2),
+                    "trades":    len(ag["trades"]),
+                }
+                for name, ag in sim.agents.items()
+            },
+        }
+
+        await broadcast(payload)
+        await asyncio.sleep(POLL_INTERVAL)
+
+
+# ─── FastAPI app ───────────────────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(trading_loop())
+    yield
+    task.cancel()
+
+
+app = FastAPI(title="Z Trader", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/")
+def root():
+    return FileResponse("index.html")
+
+
+@app.get("/status")
+def status():
+    return {"status": "ok", "ticks": sim.tick_count, "tickers": TICKERS}
+
+
+@app.post("/reset")
+def reset():
+    sim.reset()
+    return {"ok": True}
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    await ws.accept()
+    sim.clients.append(ws)
+    print(f"[ws] Client terhubung. Total: {len(sim.clients)}")
+    try:
+        while True:
+            data = await ws.receive_text()
+            msg  = json.loads(data)
+            if msg.get("action") == "reset":
+                sim.reset()
+    except WebSocketDisconnect:
+        sim.clients.remove(ws)
+        print(f"[ws] Client terputus. Total: {len(sim.clients)}")

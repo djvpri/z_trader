@@ -1,0 +1,16 @@
+Langkah cepat untuk menjalankan:
+bash# 1. Extract zip, masuk ke folder
+cd ai_trading_backend
+
+# 2. Buat virtual environment & install
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+
+# 3. Isi API key
+cp .env.example .env
+# edit .env, isi DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, QWEN_API_KEY
+
+# 4. Jalankan
+uvicorn main:app --reload --port 8000
+
+# 5. Buka index.html di browser
