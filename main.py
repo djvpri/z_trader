@@ -10,9 +10,12 @@ Push   : WebSocket broadcast ke semua client yang terhubung
 import asyncio
 import json
 import os
+import time as time_module
+import xml.etree.ElementTree as ET
 from contextlib import asynccontextmanager
 from datetime import datetime, date, time, timezone, timedelta
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 import yfinance as yf
@@ -61,6 +64,74 @@ FUNDAMENTAL = {
 }
 TICKERS = list(FUNDAMENTAL.keys())
 WIB = timezone(timedelta(hours=7))
+
+# ─── Konfigurasi RSS ──────────────────────────────────────────────────────────
+TICKER_QUERIES = {
+    "BBCA.JK": "BBCA BCA bank saham IDX",
+    "TLKM.JK": "TLKM Telkom saham IDX",
+    "ASII.JK": "ASII Astra saham IDX",
+    "BBRI.JK": "BBRI BRI bank saham IDX",
+    "GOTO.JK": "GOTO GoTo Gojek saham IDX",
+    "XAU":     "harga emas XAU gold price",
+}
+
+POSITIVE_KW = {"naik","tumbuh","profit","laba","untung","meningkat","positif","bullish",
+               "rekor","kuat","optimis","rally","gain","rise","growth","strong","upgrade",
+               "dividen","ekspansi","melampaui","bagikan","catat","menang","lonjakan"}
+NEGATIVE_KW = {"turun","jatuh","rugi","kerugian","menurun","negatif","bearish","koreksi",
+               "gagal","anjlok","fall","loss","weak","decline","crash","downgrade","cemas",
+               "khawatir","merosot","tekanan","tertekan","susut","lesu","resesi","inflasi"}
+
+_news_cache: dict = {}   # ticker -> (headline, sentiment, timestamp)
+NEWS_CACHE_TTL = 300     # 5 menit
+
+
+def _sentiment_score(text: str) -> float:
+    words = text.lower().split()
+    pos   = sum(1 for w in words if any(k in w for k in POSITIVE_KW))
+    neg   = sum(1 for w in words if any(k in w for k in NEGATIVE_KW))
+    total = pos + neg
+    if total == 0:
+        return 0.0
+    return round((pos - neg) / total, 2)
+
+
+async def fetch_rss_news(query: str) -> tuple[str, float]:
+    url = f"https://news.google.com/rss/search?q={quote(query)}&hl=id&gl=ID&ceid=ID:id"
+    try:
+        async with httpx.AsyncClient(timeout=10, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+        root  = ET.fromstring(resp.text)
+        items = root.findall(".//item")
+        if not items:
+            return "", 0.0
+        title = items[0].findtext("title", "").strip()
+        if " - " in title:
+            title = title.rsplit(" - ", 1)[0].strip()
+        return title, _sentiment_score(title)
+    except Exception as e:
+        print(f"[rss] Error ({query[:20]}): {e}")
+        return "", 0.0
+
+
+async def fetch_news_cached(ticker: str) -> tuple[str, float]:
+    """Ambil berita nyata dari Google News RSS, cache 5 menit, fallback ke stub."""
+    now_ts  = time_module.time()
+    cached  = _news_cache.get(ticker)
+    if cached and (now_ts - cached[2]) < NEWS_CACHE_TTL:
+        return cached[0], cached[1]
+
+    query            = TICKER_QUERIES.get(ticker, ticker)
+    headline, senti  = await fetch_rss_news(query)
+
+    if headline:
+        _news_cache[ticker] = (headline, senti, now_ts)
+        print(f"[rss] {ticker}: {headline[:60]}")
+        return headline, senti
+
+    # Fallback ke stub jika RSS gagal
+    return fetch_news(ticker)
 
 
 # ─── Jam pasar IHSG ───────────────────────────────────────────────────────────
@@ -477,10 +548,10 @@ async def trading_loop():
             sim.price_history[t].append(p)
         sim.tick_count += 1
 
-        # Update berita berkala
+        # Update berita berkala (RSS nyata, cache 5 menit)
         if sim.tick_count % NEWS_EVERY == 0:
             for t in TICKERS:
-                sim.last_news[t], sim.news_sentiment[t] = fetch_news(t)
+                sim.last_news[t], sim.news_sentiment[t] = await fetch_news_cached(t)
 
         # ── Layer 1: Rule-based (setiap LAYER1_EVERY tick) ──
         if sim.tick_count % LAYER1_EVERY == 0:
@@ -811,7 +882,7 @@ async def xau_trading_loop():
         xau.tick_count += 1
 
         if xau.tick_count % NEWS_EVERY == 0:
-            xau.last_news, xau.news_sentiment = fetch_xau_news()
+            xau.last_news, xau.news_sentiment = await fetch_news_cached("XAU")
 
         # Layer 1: Rule-based
         if xau.tick_count % LAYER1_EVERY == 0:
