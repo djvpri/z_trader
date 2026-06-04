@@ -1085,15 +1085,12 @@ def glob_rule_deepseek(agent_name: str) -> dict:
     def fn(t, ph, price, h):
         rsi = calc_rsi(ph); mom = calc_momentum(ph)
         short = GLOBAL_PAIRS[t]["short"]
-        
-    param($m)
-    $m.Value -replace '35 and mom > 0', '42 and mom >= 0' `
-             -replace '\(35-rsi\)\*2\+mom', '(42-rsi)*2+abs(mom)+0.1' `
-             -replace '35-rsi\)\*2\.5\+50', '42-rsi)*2.5+50' `
-             -replace '65 and h', '58 and h' `
-             -replace 'rsi-65\)\*2', 'rsi-58)*2' `
-             -replace '65-rsi\)\*2\.5\+50', '58-rsi)*2.5+50'
-
+        if rsi < 42 and mom >= 0:
+            s = (42-rsi)*2 + abs(mom) + 0.1
+            return {"ticker":t,"action":"BUY","confidence":int(min(88,(42-rsi)*2.5+50)),"reason":f"{short} RSI oversold {rsi:.0f} mom{mom:+.1f}%"}, s
+        if rsi > 58 and h["positions"] > 0:
+            s = (rsi-58)*2
+            return {"ticker":t,"action":"SELL","confidence":int(min(88,(rsi-58)*2.5+50)),"reason":f"{short} RSI overbought {rsi:.0f}"}, s
         return {"ticker":t,"action":"HOLD","confidence":35,"reason":f"{short} RSI netral {rsi:.0f}"}, 0
     return _global_rule_template(agent_name, fn)
 
