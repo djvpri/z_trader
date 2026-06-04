@@ -1059,6 +1059,25 @@ def _global_rule_template(agent_name: str, strategy_fn) -> dict:
         if score > best_score:
             best_score = score
             best = result
+
+    # Fallback: jika tidak ada sinyal DAN agent belum punya posisi sama sekali,
+    # beli pair dengan ROC positif terbaik setelah 15 tick pertama
+    if best["action"] == "HOLD" and glob.tick_count >= 15:
+        no_positions = all(h["positions"] == 0 for h in ag["holdings"].values())
+        if no_positions:
+            best_roc, best_t = 0.0, None
+            for t in GLOBAL_TICKERS:
+                ph = glob.price_history[t]
+                if len(ph) < 6: continue
+                roc = calc_roc(ph, 5)
+                if roc > best_roc:
+                    best_roc = roc
+                    best_t   = t
+            if best_t and best_roc > 0:
+                short = GLOBAL_PAIRS[best_t]["short"]
+                best  = {"ticker": best_t, "action": "BUY", "confidence": 52,
+                         "reason": f"Posisi awal: {short} ROC+{best_roc:.2f}%"}
+
     return best
 
 
@@ -1066,12 +1085,15 @@ def glob_rule_deepseek(agent_name: str) -> dict:
     def fn(t, ph, price, h):
         rsi = calc_rsi(ph); mom = calc_momentum(ph)
         short = GLOBAL_PAIRS[t]["short"]
-        if rsi < 35 and mom > 0:
-            s = (35-rsi)*2+mom
-            return {"ticker":t,"action":"BUY","confidence":int(min(88,(35-rsi)*2.5+50)),"reason":f"{short} RSI oversold {rsi:.0f} mom{mom:+.1f}%"}, s
-        if rsi > 65 and h["positions"] > 0:
-            s = (rsi-65)*2
-            return {"ticker":t,"action":"SELL","confidence":int(min(88,(rsi-65)*2.5+50)),"reason":f"{short} RSI overbought {rsi:.0f}"}, s
+        
+    param($m)
+    $m.Value -replace '35 and mom > 0', '42 and mom >= 0' `
+             -replace '\(35-rsi\)\*2\+mom', '(42-rsi)*2+abs(mom)+0.1' `
+             -replace '35-rsi\)\*2\.5\+50', '42-rsi)*2.5+50' `
+             -replace '65 and h', '58 and h' `
+             -replace 'rsi-65\)\*2', 'rsi-58)*2' `
+             -replace '65-rsi\)\*2\.5\+50', '58-rsi)*2.5+50'
+
         return {"ticker":t,"action":"HOLD","confidence":35,"reason":f"{short} RSI netral {rsi:.0f}"}, 0
     return _global_rule_template(agent_name, fn)
 
@@ -1161,7 +1183,7 @@ def glob_rule_roc(agent_name: str) -> dict:
     def fn(t, ph, price, h):
         if len(ph)<11: return {"ticker":t,"action":"HOLD","confidence":30,"reason":"Data belum cukup"}, 0
         roc=calc_roc(ph,10); short=GLOBAL_PAIRS[t]["short"]
-        if roc>1.5: return {"ticker":t,"action":"BUY","confidence":int(min(88,55+roc*5)),"reason":f"{short} ROC+{roc:.1f}% momentum kuat"}, roc
+        if roc>0.4: return {"ticker":t,"action":"BUY","confidence":int(min(88,55+roc*5)),"reason":f"{short} ROC+{roc:.1f}% momentum kuat"}, roc
         if roc<-1.5 and h["positions"]>0: return {"ticker":t,"action":"SELL","confidence":int(min(88,55+abs(roc)*5)),"reason":f"{short} ROC{roc:.1f}% momentum turun"}, abs(roc)
         return {"ticker":t,"action":"HOLD","confidence":35,"reason":f"{short} ROC lemah {roc:+.1f}%"}, 0
     return _global_rule_template(agent_name, fn)
