@@ -170,7 +170,7 @@
 <div class="ai-grid">
   <div class="ai-card" id="card-deepseek" onclick="openModal('deepseek')">
     <div class="ai-hdr"><span class="dot" style="background:#378ADD"></span><span class="ai-name">DeepSeek</span></div>
-    <div class="ai-model">RSI + Momentum Bot</div>
+    <div class="ai-model">RSI + Momentum</div>
     <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-deepseek">—</div>
     <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-deepseek">—</div>
     <div class="sig-badge HOLD" id="sig-deepseek">HOLD</div>
@@ -187,11 +187,67 @@
   </div>
   <div class="ai-card" id="card-qwen" onclick="openModal('qwen')">
     <div class="ai-hdr"><span class="dot" style="background:#D85A30"></span><span class="ai-name">Qwen</span></div>
-    <div class="ai-model">MA Crossover Bot</div>
+    <div class="ai-model">MA Crossover</div>
     <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-qwen">—</div>
     <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-qwen">—</div>
     <div class="sig-badge HOLD" id="sig-qwen">HOLD</div>
     <div class="reason" id="rsn-qwen">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-bollinger" onclick="openModal('bollinger')">
+    <div class="ai-hdr"><span class="dot" style="background:#8E44AD"></span><span class="ai-name">Bollinger</span></div>
+    <div class="ai-model">Bollinger Band Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-bollinger">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-bollinger">—</div>
+    <div class="sig-badge HOLD" id="sig-bollinger">HOLD</div>
+    <div class="reason" id="rsn-bollinger">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-macd" onclick="openModal('macd')">
+    <div class="ai-hdr"><span class="dot" style="background:#F39C12"></span><span class="ai-name">MACD</span></div>
+    <div class="ai-model">MACD EMA Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-macd">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-macd">—</div>
+    <div class="sig-badge HOLD" id="sig-macd">HOLD</div>
+    <div class="reason" id="rsn-macd">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-mean_rev" onclick="openModal('mean_rev')">
+    <div class="ai-hdr"><span class="dot" style="background:#00BCD4"></span><span class="ai-name">MeanRev</span></div>
+    <div class="ai-model">Mean Reversion Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-mean_rev">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-mean_rev">—</div>
+    <div class="sig-badge HOLD" id="sig-mean_rev">HOLD</div>
+    <div class="reason" id="rsn-mean_rev">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-breakout" onclick="openModal('breakout')">
+    <div class="ai-hdr"><span class="dot" style="background:#C0392B"></span><span class="ai-name">Breakout</span></div>
+    <div class="ai-model">Breakout Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-breakout">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-breakout">—</div>
+    <div class="sig-badge HOLD" id="sig-breakout">HOLD</div>
+    <div class="reason" id="rsn-breakout">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-stochastic" onclick="openModal('stochastic')">
+    <div class="ai-hdr"><span class="dot" style="background:#607D8B"></span><span class="ai-name">Stochastic</span></div>
+    <div class="ai-model">Stochastic Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-stochastic">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-stochastic">—</div>
+    <div class="sig-badge HOLD" id="sig-stochastic">HOLD</div>
+    <div class="reason" id="rsn-stochastic">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-triple_ma" onclick="openModal('triple_ma')">
+    <div class="ai-hdr"><span class="dot" style="background:#27AE60"></span><span class="ai-name">TripleMA</span></div>
+    <div class="ai-model">Triple MA Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-triple_ma">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-triple_ma">—</div>
+    <div class="sig-badge HOLD" id="sig-triple_ma">HOLD</div>
+    <div class="reason" id="rsn-triple_ma">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-roc" onclick="openModal('roc')">
+    <div class="ai-hdr"><span class="dot" style="background:#FF5722"></span><span class="ai-name">ROC</span></div>
+    <div class="ai-model">Rate of Change Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-roc">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-roc">—</div>
+    <div class="sig-badge HOLD" id="sig-roc">HOLD</div>
+    <div class="reason" id="rsn-roc">Menunggu data...</div>
   </div>
 </div>
 
@@ -199,11 +255,18 @@
   <div class="panel">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
       <span class="panel-title" style="margin-bottom:0">LOG TRANSAKSI</span>
-      <div id="logFilters" style="display:flex;gap:4px">
+      <div id="logFilters" style="display:flex;gap:3px;flex-wrap:wrap">
         <button class="log-filter active" data-filter="all">Semua</button>
-        <button class="log-filter" data-filter="deepseek" style="color:#378ADD">DeepSeek</button>
         <button class="log-filter" data-filter="gemini" style="color:#1D9E75">Gemini</button>
+        <button class="log-filter" data-filter="deepseek" style="color:#378ADD">DeepSeek</button>
         <button class="log-filter" data-filter="qwen" style="color:#D85A30">Qwen</button>
+        <button class="log-filter" data-filter="bollinger" style="color:#8E44AD">Bollinger</button>
+        <button class="log-filter" data-filter="macd" style="color:#F39C12">MACD</button>
+        <button class="log-filter" data-filter="mean_rev" style="color:#00BCD4">MeanRev</button>
+        <button class="log-filter" data-filter="breakout" style="color:#C0392B">Breakout</button>
+        <button class="log-filter" data-filter="stochastic" style="color:#607D8B">Stoch</button>
+        <button class="log-filter" data-filter="triple_ma" style="color:#27AE60">TripleMA</button>
+        <button class="log-filter" data-filter="roc" style="color:#FF5722">ROC</button>
       </div>
     </div>
     <div class="log-list" id="logList"><p style="font-size:11px;color:var(--muted)">Belum ada transaksi.</p></div>
@@ -226,13 +289,19 @@
 
 <script>
 const MODAL_USD = 10000;
-const COLORS    = {deepseek:'#378ADD', gemini:'#1D9E75', qwen:'#D85A30'};
+const COLORS  = {
+  deepseek:'#378ADD', gemini:'#1D9E75', qwen:'#D85A30',
+  bollinger:'#8E44AD', macd:'#F39C12', mean_rev:'#00BCD4',
+  breakout:'#C0392B', stochastic:'#607D8B', triple_ma:'#27AE60', roc:'#FF5722'
+};
+const AGENTS  = ['deepseek','gemini','qwen','bollinger','macd','mean_rev','breakout','stochastic','triple_ma','roc'];
 const WS_URL    = (location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/ws/xau';
 
 let chart, ws;
-let lastSignals   = {deepseek:'HOLD', gemini:'HOLD', qwen:'HOLD'};
-let prevTrades    = {deepseek:0, gemini:0, qwen:0};
-let prevPositions = {deepseek:0, gemini:0, qwen:0};
+let lastSignals   = {};
+let prevTrades    = {};
+let prevPositions = {};
+AGENTS.forEach(a=>{ lastSignals[a]='HOLD'; prevTrades[a]=0; prevPositions[a]=0; });
 let currentPrice  = 0;
 let latestAgents  = {};
 let firstPrice     = 0;
@@ -247,10 +316,8 @@ function initChart(){
   chart = new Chart(document.getElementById('mainChart'),{
     type:'line',
     data:{labels:[],datasets:[
-      {label:'XAU/USD', data:[],borderColor:'#B8860B',borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,yAxisID:'y'},
-      {label:'DeepSeek',data:[],borderColor:'#378ADD',borderWidth:1.2,pointRadius:0,tension:0.3,fill:false,borderDash:[5,3],yAxisID:'y2'},
-      {label:'Gemini',  data:[],borderColor:'#1D9E75',borderWidth:1.2,pointRadius:0,tension:0.3,fill:false,borderDash:[5,3],yAxisID:'y2'},
-      {label:'Qwen',    data:[],borderColor:'#D85A30',borderWidth:1.2,pointRadius:0,tension:0.3,fill:false,borderDash:[5,3],yAxisID:'y2'},
+      {label:'XAU/USD',data:[],borderColor:'#B8860B',borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,yAxisID:'y'},
+      ...AGENTS.map(a=>({label:a,data:[],borderColor:COLORS[a],borderWidth:a==='gemini'?1.5:0.8,pointRadius:0,tension:0.3,fill:false,borderDash:a==='gemini'?[]:[4,3],yAxisID:'y2'}))
     ]},
     options:{
       responsive:true, maintainAspectRatio:false, animation:{duration:0},
@@ -413,17 +480,17 @@ function handleTick(data){
 
   chart.data.labels.push('T'+data.tick);
   chart.data.datasets[0].data.push(data.price);
-  chart.data.datasets[1].data.push(data.agents.deepseek.portfolio);
-  chart.data.datasets[2].data.push(data.agents.gemini.portfolio);
-  chart.data.datasets[3].data.push(data.agents.qwen.portfolio);
+  AGENTS.forEach((a,i)=>{ chart.data.datasets[i+1].data.push(data.agents[a]?data.agents[a].portfolio:null); });
   if(chart.data.labels.length>80){ chart.data.labels.shift(); chart.data.datasets.forEach(d=>d.data.shift()); }
   chart.update('none');
 
   const tb=document.getElementById('trigger-badge');
   tb.textContent=data.trigger?'⚡ TRIGGER: '+data.trigger:'menunggu sinyal...';
 
-  const allPf=Object.values(data.agents).map(a=>a.portfolio);
-  Object.entries(data.agents).forEach(([name,ag])=>updateAgentCard(name,ag,allPf));
+  currentPrice = data.price;
+  latestAgents = data.agents;
+  const allPf = AGENTS.map(a=>data.agents[a]?data.agents[a].portfolio:0).filter(Boolean);
+  AGENTS.forEach(a=>{ if(data.agents[a]) updateAgentCard(a,data.agents[a],allPf); });
   updateRank(data.agents);
 }
 

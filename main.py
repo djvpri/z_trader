@@ -1029,6 +1029,109 @@ def xau_rule_qwen() -> dict:
     return {"action": "HOLD", "confidence": 40, "reason": "XAU MA belum konfirmasi tren"}
 
 
+def xau_rule_bollinger(agent_name: str) -> dict:
+    ph = xau.price_history; price = xau.price
+    if not price or len(ph) < 20: return {"action":"HOLD","confidence":35,"reason":"Data belum cukup"}
+    _, bbu, bbl = calc_bollinger(ph)
+    if bbu is None: return {"action":"HOLD","confidence":35,"reason":"XAU Bollinger netral"}
+    pos = xau.agents[agent_name]["positions"]
+    if price < bbl:
+        return {"action":"BUY","confidence":int(min(88,55+(bbl-price)/bbl*800)),"reason":f"XAU di bawah Bollinger lower ${bbl:.0f}"}
+    if price > bbu and pos > 0:
+        return {"action":"SELL","confidence":int(min(88,55+(price-bbu)/bbu*800)),"reason":f"XAU di atas Bollinger upper ${bbu:.0f}"}
+    return {"action":"HOLD","confidence":40,"reason":"XAU dalam Bollinger band"}
+
+
+def xau_rule_macd(agent_name: str) -> dict:
+    ph = xau.price_history; price = xau.price
+    if not price or len(ph) < 26: return {"action":"HOLD","confidence":35,"reason":"Data MACD belum cukup"}
+    e12 = calc_ema(ph, 12); e26 = calc_ema(ph, 26)
+    if e12 is None or e26 is None: return {"action":"HOLD","confidence":35,"reason":"XAU MACD netral"}
+    macd = e12 - e26
+    pos  = xau.agents[agent_name]["positions"]
+    if macd > 0 and pos == 0:
+        return {"action":"BUY","confidence":int(min(85,55+abs(macd)/price*5000)),"reason":f"XAU MACD positif EMA12>EMA26"}
+    if macd < 0 and pos > 0:
+        return {"action":"SELL","confidence":int(min(85,55+abs(macd)/price*5000)),"reason":f"XAU MACD negatif EMA12<EMA26"}
+    return {"action":"HOLD","confidence":40,"reason":"XAU MACD netral"}
+
+
+def xau_rule_mean_rev(agent_name: str) -> dict:
+    ph = xau.price_history; price = xau.price
+    if not price or len(ph) < 20: return {"action":"HOLD","confidence":35,"reason":"Data belum cukup"}
+    ma20 = calc_ma(ph, 20)
+    if ma20 is None: return {"action":"HOLD","confidence":35,"reason":"XAU MA20 belum siap"}
+    dev  = (price - ma20) / ma20 * 100
+    pos  = xau.agents[agent_name]["positions"]
+    if dev < -1.5:
+        return {"action":"BUY","confidence":int(min(88,55+abs(dev)*3)),"reason":f"XAU {abs(dev):.1f}% di bawah MA20, mean reversion"}
+    if dev > 1.0 and pos > 0:
+        return {"action":"SELL","confidence":int(min(85,50+abs(dev)*3)),"reason":f"XAU kembali ke MA20 +{dev:.1f}%"}
+    return {"action":"HOLD","confidence":40,"reason":"XAU dekat MA20"}
+
+
+def xau_rule_breakout(agent_name: str) -> dict:
+    ph = xau.price_history; price = xau.price
+    if not price or len(ph) < 22: return {"action":"HOLD","confidence":35,"reason":"Data belum cukup"}
+    window = ph[-21:-1]; hi20 = max(window); lo20 = min(window)
+    pos    = xau.agents[agent_name]["positions"]
+    if price > hi20:
+        return {"action":"BUY","confidence":int(min(88,60+(price-hi20)/hi20*500)),"reason":f"XAU breakout high ${hi20:.0f}"}
+    if price < lo20 and pos > 0:
+        return {"action":"SELL","confidence":int(min(88,60+(lo20-price)/lo20*500)),"reason":f"XAU breakdown low ${lo20:.0f}"}
+    return {"action":"HOLD","confidence":40,"reason":"XAU belum breakout"}
+
+
+def xau_rule_stochastic(agent_name: str) -> dict:
+    ph = xau.price_history
+    if len(ph) < 14: return {"action":"HOLD","confidence":35,"reason":"Data Stochastic belum cukup"}
+    k   = calc_stochastic(ph)
+    pos = xau.agents[agent_name]["positions"]
+    if k < 20:
+        return {"action":"BUY","confidence":int(min(88,55+(20-k)*1.5)),"reason":f"XAU Stochastic oversold %K={k:.0f}"}
+    if k > 80 and pos > 0:
+        return {"action":"SELL","confidence":int(min(88,55+(k-80)*1.5)),"reason":f"XAU Stochastic overbought %K={k:.0f}"}
+    return {"action":"HOLD","confidence":40,"reason":f"XAU Stochastic netral %K={k:.0f}"}
+
+
+def xau_rule_triple_ma(agent_name: str) -> dict:
+    ph = xau.price_history; price = xau.price
+    if not price or len(ph) < 20: return {"action":"HOLD","confidence":35,"reason":"Data belum cukup"}
+    ma5  = calc_ma(ph, 5); ma10 = calc_ma(ph, 10); ma20 = calc_ma(ph, 20)
+    if None in (ma5, ma10, ma20): return {"action":"HOLD","confidence":35,"reason":"XAU Triple MA belum siap"}
+    pos = xau.agents[agent_name]["positions"]
+    if ma5 > ma10 > ma20:
+        return {"action":"BUY","confidence":int(min(88,55+(ma5-ma20)/ma20*500)),"reason":"XAU MA5>MA10>MA20 bullish alignment"}
+    if ma5 < ma10 < ma20 and pos > 0:
+        return {"action":"SELL","confidence":int(min(88,55+(ma20-ma5)/ma20*500)),"reason":"XAU MA5<MA10<MA20 bearish alignment"}
+    return {"action":"HOLD","confidence":40,"reason":"XAU Triple MA belum alignment"}
+
+
+def xau_rule_roc(agent_name: str) -> dict:
+    ph  = xau.price_history
+    pos = xau.agents[agent_name]["positions"]
+    if len(ph) < 11: return {"action":"HOLD","confidence":35,"reason":"Data ROC belum cukup"}
+    roc = calc_roc(ph, 10)
+    if roc > 1.0:
+        return {"action":"BUY","confidence":int(min(88,55+roc*5)),"reason":f"XAU ROC+{roc:.1f}% momentum naik"}
+    if roc < -1.0 and pos > 0:
+        return {"action":"SELL","confidence":int(min(88,55+abs(roc)*5)),"reason":f"XAU ROC{roc:.1f}% momentum turun"}
+    return {"action":"HOLD","confidence":40,"reason":f"XAU ROC lemah {roc:+.1f}%"}
+
+
+XAU_RULE_BOTS = {
+    "deepseek":   lambda n: xau_rule_deepseek(),
+    "qwen":       lambda n: xau_rule_qwen(),
+    "bollinger":  xau_rule_bollinger,
+    "macd":       xau_rule_macd,
+    "mean_rev":   xau_rule_mean_rev,
+    "breakout":   xau_rule_breakout,
+    "stochastic": xau_rule_stochastic,
+    "triple_ma":  xau_rule_triple_ma,
+    "roc":        xau_rule_roc,
+}
+
+
 def build_xau_prompt(trigger: str = "") -> str:
     ag   = xau.agents["gemini"]
     ph   = xau.price_history
@@ -1128,10 +1231,10 @@ async def xau_trading_loop():
         if xau.tick_count % NEWS_EVERY == 0:
             xau.last_news, xau.news_sentiment = await fetch_news_cached("XAU")
 
-        # Layer 1: Rule-based
+        # Layer 1: Rule-based (semua 9 bot)
         if xau.tick_count % LAYER1_EVERY == 0:
-            for agent_name, rule_fn in [("deepseek", xau_rule_deepseek), ("qwen", xau_rule_qwen)]:
-                result = rule_fn()
+            for agent_name, rule_fn in XAU_RULE_BOTS.items():
+                result = rule_fn(agent_name)
                 xau.agents[agent_name]["signal"]     = result["action"]
                 xau.agents[agent_name]["confidence"] = result["confidence"]
                 xau.agents[agent_name]["reason"]     = result["reason"]
