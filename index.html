@@ -182,9 +182,9 @@
 <div class="chart-card">
   <div class="legend" style="max-height:44px;overflow:hidden">
     <span><span class="ldot" style="background:#888780;height:2px"></span>Harga</span>
-    <span><span class="ldot" style="background:#378ADD"></span>DeepSeek</span>
+    <span><span class="ldot" style="background:#378ADD"></span>RSI Bot</span>
     <span><span class="ldot" style="background:#1D9E75"></span>Gemini</span>
-    <span><span class="ldot" style="background:#D85A30"></span>Qwen</span>
+    <span><span class="ldot" style="background:#D85A30"></span>MA Bot</span>
     <span><span class="ldot" style="background:#8E44AD"></span>Bollinger</span>
     <span><span class="ldot" style="background:#F39C12"></span>MACD</span>
     <span><span class="ldot" style="background:#00BCD4"></span>MeanRev</span>
@@ -199,8 +199,8 @@
 </div>
 
 <div class="ai-grid">
-  <div class="ai-card" id="card-deepseek" onclick="openModal('deepseek')">
-    <div class="ai-hdr"><span class="dot" style="background:#378ADD"></span><span class="ai-name">DeepSeek</span></div>
+  <div class="ai-card" id="card-deepseek" onclick="openModal('rsi_bot')">
+    <div class="ai-hdr"><span class="dot" style="background:#378ADD"></span><span class="ai-name">RSI Bot</span></div>
     <div class="ai-model">RSI + Momentum</div>
     <div class="stat-lbl">Portofolio</div><div class="stat-val" id="pf-deepseek">—</div>
     <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-deepseek">—</div>
@@ -216,8 +216,8 @@
     <div class="sig-badge HOLD" id="sig-gemini">HOLD</div>
     <div class="reason" id="rsn-gemini">Menunggu data...</div>
   </div>
-  <div class="ai-card" id="card-qwen" onclick="openModal('qwen')">
-    <div class="ai-hdr"><span class="dot" style="background:#D85A30"></span><span class="ai-name">Qwen</span></div>
+  <div class="ai-card" id="card-qwen" onclick="openModal('ma_bot')">
+    <div class="ai-hdr"><span class="dot" style="background:#D85A30"></span><span class="ai-name">MA Bot</span></div>
     <div class="ai-model">MA Crossover</div>
     <div class="stat-lbl">Portofolio</div><div class="stat-val" id="pf-qwen">—</div>
     <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-qwen">—</div>
@@ -289,8 +289,8 @@
       <div id="logFilters" style="display:flex;gap:3px;flex-wrap:wrap">
         <button class="log-filter active" data-filter="all">Semua</button>
         <button class="log-filter" data-filter="gemini" style="color:#1D9E75">Gemini</button>
-        <button class="log-filter" data-filter="deepseek" style="color:#378ADD">DeepSeek</button>
-        <button class="log-filter" data-filter="qwen" style="color:#D85A30">Qwen</button>
+        <button class="log-filter" data-filter="rsi_bot" style="color:#378ADD">RSI Bot</button>
+        <button class="log-filter" data-filter="ma_bot" style="color:#D85A30">MA Bot</button>
         <button class="log-filter" data-filter="bollinger" style="color:#8E44AD">Bollinger</button>
         <button class="log-filter" data-filter="macd" style="color:#F39C12">MACD</button>
         <button class="log-filter" data-filter="mean_rev" style="color:#00BCD4">MeanRev</button>
@@ -315,7 +315,7 @@ const COLORS  = {
   bollinger:'#8E44AD', macd:'#F39C12', mean_rev:'#00BCD4',
   breakout:'#C0392B', stochastic:'#607D8B', triple_ma:'#27AE60', roc:'#FF5722'
 };
-const AGENTS  = ['deepseek','gemini','qwen','bollinger','macd','mean_rev','breakout','stochastic','triple_ma','roc'];
+const AGENTS  = ['rsi_bot','gemini','ma_bot','bollinger','macd','mean_rev','breakout','stochastic','triple_ma','roc'];
 const TICKERS = ['BBCA.JK','TLKM.JK','ASII.JK','BBRI.JK','GOTO.JK'];
 const WS_URL  = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
 

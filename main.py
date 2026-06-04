@@ -204,7 +204,7 @@ class SimState:
                 "reason":      "Menunggu data...",
                 "last_ticker": TICKERS[0],
             }
-            for name in ("deepseek", "gemini", "qwen",
+            for name in ("rsi_bot", "gemini", "ma_bot",
                              "bollinger", "macd", "mean_rev",
                              "breakout", "stochastic", "triple_ma", "roc")
         }
@@ -600,8 +600,8 @@ def rule_roc(agent_name: str) -> dict:
 
 
 RULE_BOTS = {
-    "deepseek":   rule_deepseek,
-    "qwen":       rule_qwen,
+    "rsi_bot":   rule_deepseek,
+    "ma_bot":       rule_qwen,
     "bollinger":  rule_bollinger,
     "macd":       rule_macd,
     "mean_rev":   rule_mean_rev,
@@ -965,7 +965,7 @@ class GlobalState:
                 "reason":      "Menunggu data...",
                 "last_ticker": GLOBAL_TICKERS[0],
             }
-            for name in ("deepseek", "gemini", "qwen", "bollinger", "macd",
+            for name in ("rsi_bot", "gemini", "ma_bot", "bollinger", "macd",
                         "mean_rev", "breakout", "stochastic", "triple_ma", "roc")
         }
 
@@ -1168,8 +1168,8 @@ def glob_rule_roc(agent_name: str) -> dict:
 
 
 GLOBAL_RULE_BOTS = {
-    "deepseek":   glob_rule_deepseek,
-    "qwen":       glob_rule_qwen,
+    "rsi_bot":   glob_rule_deepseek,
+    "ma_bot":       glob_rule_qwen,
     "bollinger":  glob_rule_bollinger,
     "macd":       glob_rule_macd,
     "mean_rev":   glob_rule_mean_rev,
