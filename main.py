@@ -1439,6 +1439,11 @@ def reset():
     return {"ok": True}
 
 
+@app.get("/history")
+def history_page():
+    return FileResponse("history.html")
+
+
 @app.get("/history/transactions")
 async def history_transactions(agent: str = None, limit: int = 100):
     return await db.get_transactions(agent, limit)

@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Z Trader — Riwayat</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{--bg:#f9f9f7;--card:#fff;--border:#e5e4de;--text:#1a1a18;--muted:#6b6a65;
+        --green:#1D9E75;--red:#E24B4A;--blue:#378ADD;--coral:#D85A30}
+  @media(prefers-color-scheme:dark){
+    :root{--bg:#1a1a18;--card:#242422;--border:#3a3a38;--text:#e2e0d6;--muted:#888780}
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,sans-serif}
+  body{background:var(--bg);color:var(--text);padding:1rem}
+  .topbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:1.25rem}
+  .back-btn{padding:5px 12px;border:0.5px solid var(--border);border-radius:8px;
+            background:transparent;color:var(--muted);font-size:12px;cursor:pointer;
+            text-decoration:none;display:inline-flex;align-items:center;gap:5px}
+  h1{font-size:18px;font-weight:600}
+
+  .tabs{display:flex;gap:4px;margin-bottom:1rem;border-bottom:0.5px solid var(--border);padding-bottom:0}
+  .tab{padding:8px 16px;font-size:13px;cursor:pointer;border:none;background:none;
+       color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
+  .tab.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:500}
+
+  .pane{display:none}.pane.active{display:block}
+
+  .card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:14px;margin-bottom:1rem}
+  .card-title{font-size:11px;font-weight:500;color:var(--muted);letter-spacing:.04em;margin-bottom:12px}
+
+  /* Performa */
+  .range-btns{display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap}
+  .rbtn{padding:4px 12px;border:0.5px solid var(--border);border-radius:6px;font-size:11px;
+        cursor:pointer;background:transparent;color:var(--muted)}
+  .rbtn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .chart-wrap{position:relative;height:280px}
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:1rem}
+  .stat-card{background:var(--bg);border-radius:10px;padding:10px 12px}
+  .stat-agent{font-size:10px;color:var(--muted);margin-bottom:2px;display:flex;align-items:center;gap:5px}
+  .stat-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .stat-pf{font-size:16px;font-weight:600}
+  .stat-pnl{font-size:11px;margin-top:2px}
+  .pos{color:var(--green)}.neg{color:var(--red)}
+
+  /* Transaksi */
+  .filter-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+  .filter-row select{padding:5px 10px;border:0.5px solid var(--border);border-radius:8px;
+                     background:var(--card);color:var(--text);font-size:12px}
+  .filter-row label{font-size:11px;color:var(--muted)}
+  .tbl-wrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;padding:8px 10px;font-size:10px;font-weight:500;color:var(--muted);
+     border-bottom:0.5px solid var(--border);white-space:nowrap}
+  td{padding:8px 10px;border-bottom:0.5px solid var(--border);white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:var(--bg)}
+  .badge-buy{background:#eaf3de;color:#3B6D11;padding:1px 7px;border-radius:5px;font-size:10px;font-weight:500}
+  .badge-sell{background:#fcebeb;color:#A32D2D;padding:1px 7px;border-radius:5px;font-size:10px;font-weight:500}
+  .gain-pos{color:var(--green)}.gain-neg{color:var(--red)}
+  .empty{text-align:center;padding:32px;color:var(--muted);font-size:13px}
+
+  /* Kompetisi */
+  .comp-entry{background:var(--card);border:0.5px solid var(--border);border-radius:10px;
+              padding:12px;margin-bottom:8px}
+  .comp-ts{font-size:10px;color:var(--muted);margin-bottom:8px}
+  .comp-row{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;
+            border-bottom:0.5px solid var(--border)}
+  .comp-row:last-child{border-bottom:none}
+  .comp-rank{font-weight:700;min-width:24px;font-size:14px}
+  .comp-name{flex:1;font-weight:500}
+  .comp-pf{font-size:13px;font-weight:600}
+  .rank1{color:#F39C12}.rank2{color:#888780}.rank3{color:#D85A30}
+  .loading{text-align:center;padding:40px;color:var(--muted);font-size:13px}
+
+  @media(max-width:600px){.stat-grid{grid-template-columns:1fr 1fr}.chart-wrap{height:200px}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="/" class="back-btn">&#8592; IDX</a>
+  <a href="/global" class="back-btn">&#127758; Global</a>
+  <h1>&#128202; Riwayat</h1>
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="performa">Performa</button>
+  <button class="tab" data-tab="transaksi">Transaksi</button>
+  <button class="tab" data-tab="kompetisi">Kompetisi</button>
+</div>
+
+<!-- TAB: PERFORMA -->
+<div class="pane active" id="pane-performa">
+  <div class="card">
+    <div class="card-title">GRAFIK PORTOFOLIO</div>
+    <div class="range-btns">
+      <button class="rbtn active" data-range="100">100 data</button>
+      <button class="rbtn" data-range="500">500 data</button>
+      <button class="rbtn" data-range="1000">Max</button>
+    </div>
+    <div class="chart-wrap"><canvas id="perfChart"></canvas></div>
+  </div>
+  <div class="stat-grid" id="statGrid"><div class="loading">Memuat data...</div></div>
+</div>
+
+<!-- TAB: TRANSAKSI -->
+<div class="pane" id="pane-transaksi">
+  <div class="card">
+    <div class="filter-row">
+      <label>Agent:</label>
+      <select id="fAgent">
+        <option value="">Semua</option>
+        <option value="rsi_bot">RSI Bot</option>
+        <option value="gemini">Gemini</option>
+        <option value="ma_bot">MA Bot</option>
+        <option value="bollinger">Bollinger</option>
+        <option value="macd">MACD</option>
+        <option value="mean_rev">MeanRev</option>
+        <option value="breakout">Breakout</option>
+        <option value="stochastic">Stochastic</option>
+        <option value="triple_ma">TripleMA</option>
+        <option value="roc">ROC</option>
+      </select>
+      <label>Tipe:</label>
+      <select id="fType">
+        <option value="">Semua</option>
+        <option value="BUY">BUY</option>
+        <option value="SELL">SELL</option>
+      </select>
+      <button class="rbtn active" id="btnLoadTx" onclick="loadTransactions()">Muat</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Waktu</th><th>Agent</th><th>Ticker</th><th>Tipe</th>
+            <th>Harga</th><th>Lot/Unit</th><th>Gain/Loss</th>
+          </tr>
+        </thead>
+        <tbody id="txBody"><tr><td colspan="7" class="empty">Klik "Muat" untuk tampilkan data</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: KOMPETISI -->
+<div class="pane" id="pane-kompetisi">
+  <div id="compList"><div class="loading">Memuat data...</div></div>
+</div>
+
+<script>
+const COLORS = {
+  rsi_bot:'#378ADD',gemini:'#1D9E75',ma_bot:'#D85A30',
+  bollinger:'#8E44AD',macd:'#F39C12',mean_rev:'#00BCD4',
+  breakout:'#C0392B',stochastic:'#607D8B',triple_ma:'#27AE60',roc:'#FF5722'
+};
+const MODAL = 100_000_000;
+let perfChart = null;
+let currentRange = 100;
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('pane-' + btn.dataset.tab).classList.add('active');
+    if(btn.dataset.tab === 'kompetisi') loadCompetition();
+  });
+});
+
+document.querySelectorAll('.rbtn[data-range]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.rbtn[data-range]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentRange = parseInt(btn.dataset.range);
+    loadPerformance(currentRange);
+  });
+});
+
+// ── Format helpers ─────────────────────────────────────────────────────────
+function fmtRp(n){ return 'Rp '+Math.round(Math.abs(n)).toLocaleString('id-ID') }
+function fmtTs(ts){
+  const d = new Date(ts);
+  return d.toLocaleDateString('id-ID',{day:'2-digit',month:'short'}) + ' ' +
+         d.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+}
+function fmtPrice(p,ticker){
+  if(!ticker) return p;
+  if(ticker.endsWith('.JK')) return 'Rp '+Math.round(p).toLocaleString('id-ID');
+  return '$'+p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
+}
+
+// ── Load Performance ───────────────────────────────────────────────────────
+async function loadPerformance(limit=100){
+  try {
+    const res  = await fetch('/history/portfolio?limit='+limit);
+    const data = await res.json();
+    if(!data.length){
+      document.getElementById('statGrid').innerHTML = '<div class="empty">Belum ada data portofolio tersimpan</div>';
+      return;
+    }
+    renderPerfChart(data);
+    renderStatGrid(data);
+  } catch(e) {
+    document.getElementById('statGrid').innerHTML = '<div class="empty">Database tidak terhubung</div>';
+  }
+}
+
+function renderPerfChart(data){
+  // Group by agent
+  const agents = {};
+  data.slice().reverse().forEach(row => {
+    if(!agents[row.agent_name]) agents[row.agent_name] = [];
+    agents[row.agent_name].push({ x: fmtTs(row.ts), y: row.portfolio });
+  });
+
+  const labels = agents[Object.keys(agents)[0]]?.map(d => d.x) || [];
+  const datasets = Object.entries(agents).map(([name, pts]) => ({
+    label: name,
+    data: pts.map(p => p.y),
+    borderColor: COLORS[name] || '#888',
+    borderWidth: name === 'gemini' ? 2 : 1,
+    pointRadius: 0,
+    tension: 0.3,
+    fill: false,
+  }));
+
+  if(perfChart) perfChart.destroy();
+  perfChart = new Chart(document.getElementById('perfChart'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
+      plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 8, color: '#888', maxRotation: 0 }, grid: { color: 'rgba(128,128,128,0.07)' } },
+        y: { ticks: { color: '#888', callback: v => 'Rp'+Math.round(v/1000000)+'jt' }, grid: { color: 'rgba(128,128,128,0.07)' } }
+      }
+    }
+  });
+}
+
+function renderStatGrid(data){
+  // Latest portfolio per agent
+  const latest = {};
+  data.forEach(row => {
+    if(!latest[row.agent_name] || new Date(row.ts) > new Date(latest[row.agent_name].ts))
+      latest[row.agent_name] = row;
+  });
+  const sorted = Object.values(latest).sort((a,b) => b.portfolio - a.portfolio);
+  const html = sorted.map(ag => {
+    const pnl = ag.portfolio - MODAL;
+    const col  = pnl >= 0 ? 'pos' : 'neg';
+    return `<div class="stat-card">
+      <div class="stat-agent"><span class="stat-dot" style="background:${COLORS[ag.agent_name]||'#888'}"></span>${ag.agent_name}</div>
+      <div class="stat-pf">${fmtRp(ag.portfolio)}</div>
+      <div class="stat-pnl ${col}">${pnl>=0?'+':'-'} ${fmtRp(pnl)} (${ag.pnl_pct.toFixed(2)}%)</div>
+    </div>`;
+  }).join('');
+  document.getElementById('statGrid').innerHTML = html || '<div class="empty">Belum ada data</div>';
+}
+
+// ── Load Transactions ──────────────────────────────────────────────────────
+async function loadTransactions(){
+  const agent = document.getElementById('fAgent').value;
+  const type  = document.getElementById('fType').value;
+  let url = '/history/transactions?limit=200';
+  if(agent) url += '&agent=' + agent;
+  try {
+    const res  = await fetch(url);
+    let data   = await res.json();
+    if(type) data = data.filter(r => r.type === type);
+    const tbody = document.getElementById('txBody');
+    if(!data.length){ tbody.innerHTML = '<tr><td colspan="7" class="empty">Tidak ada transaksi</td></tr>'; return; }
+    tbody.innerHTML = data.map(r => {
+      const gain = r.gain || 0;
+      const gainHtml = r.type === 'SELL'
+        ? `<span class="${gain>=0?'gain-pos':'gain-neg'}">${gain>=0?'+':'-'}${fmtRp(gain)}</span>`
+        : '—';
+      return `<tr>
+        <td>${fmtTs(r.ts)}</td>
+        <td><span style="color:${COLORS[r.agent_name]||'#888'};font-weight:500">${r.agent_name}</span></td>
+        <td>${r.ticker||'—'}</td>
+        <td><span class="badge-${r.type.toLowerCase()}">${r.type}</span></td>
+        <td>${fmtPrice(r.price, r.ticker)}</td>
+        <td>${r.lots||r.units||'—'}</td>
+        <td>${gainHtml}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    document.getElementById('txBody').innerHTML = '<tr><td colspan="7" class="empty">Database tidak terhubung</td></tr>';
+  }
+}
+
+// ── Load Competition ───────────────────────────────────────────────────────
+async function loadCompetition(){
+  try {
+    const res  = await fetch('/history/results?limit=60');
+    const data = await res.json();
+    const el   = document.getElementById('compList');
+    if(!data.length){ el.innerHTML = '<div class="empty">Belum ada hasil kompetisi tersimpan</div>'; return; }
+
+    // Group by timestamp (bucket setiap 5 menit)
+    const groups = {};
+    data.forEach(row => {
+      const d   = new Date(row.ts);
+      const key = d.toISOString().slice(0, 15) + '0:00'; // round to 10 min
+      if(!groups[key]) groups[key] = [];
+      groups[key].push(row);
+    });
+
+    const rankIcon = {1:'🥇',2:'🥈',3:'🥉'};
+    el.innerHTML = Object.entries(groups).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,10).map(([key, rows]) => {
+      const sorted = rows.sort((a,b)=>a.rank-b.rank);
+      const ts     = fmtTs(sorted[0].ts);
+      const rowsHtml = sorted.map(r => {
+        const pnl = r.pnl;
+        const col  = pnl>=0?'pos':'neg';
+        return `<div class="comp-row">
+          <span class="comp-rank rank${r.rank}">${rankIcon[r.rank]||r.rank}</span>
+          <span class="comp-name" style="color:${COLORS[r.agent_name]||'#888'}">${r.agent_name}</span>
+          <span class="comp-pf">${fmtRp(r.portfolio)}</span>
+          <span class="stat-pnl ${col}" style="font-size:11px">&nbsp;${pnl>=0?'+':'-'}${fmtRp(pnl)}</span>
+        </div>`;
+      }).join('');
+      return `<div class="comp-entry"><div class="comp-ts">&#128337; ${ts}</div>${rowsHtml}</div>`;
+    }).join('') || '<div class="empty">Belum ada data</div>';
+  } catch(e) {
+    document.getElementById('compList').innerHTML = '<div class="empty">Database tidak terhubung</div>';
+  }
+}
+
+// Init
+loadPerformance(100);
+</script>
+</body>
+</html>
