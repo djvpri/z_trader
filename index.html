@@ -106,7 +106,8 @@
               transition:all .15s;min-height:30px;white-space:nowrap}
   .log-filter.active{background:var(--text);color:var(--bg);border-color:var(--text)}
 
-  .prices-strip{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:.6rem}
+  .prices-strip{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:.6rem;
+              max-height:72px;overflow-y:auto;padding:2px}
   .price-chip{background:var(--card);border:0.5px solid var(--border);border-radius:8px;
               padding:5px 10px;font-size:11px;cursor:pointer;transition:border-color .15s;
               display:flex;align-items:center;gap:4px;min-height:32px}
@@ -161,13 +162,7 @@
 </div>
 
 <div class="topbar">
-  <div class="ticker-btns" id="tickerBtns">
-    <button class="tbtn active" data-ticker="BBCA.JK">BBCA</button>
-    <button class="tbtn" data-ticker="TLKM.JK">TLKM</button>
-    <button class="tbtn" data-ticker="ASII.JK">ASII</button>
-    <button class="tbtn" data-ticker="BBRI.JK">BBRI</button>
-    <button class="tbtn" data-ticker="GOTO.JK">GOTO</button>
-  </div>
+  <span style="font-size:11px;color:var(--muted)">LQ45 · 45 Saham</span>
   <div class="status" id="status"><span class="dot gray"></span>Menghubungkan...</div>
 </div>
 

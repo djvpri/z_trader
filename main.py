@@ -55,24 +55,24 @@ GEMINI_SYSTEM = (
     '{"ticker":"KODE.JK","action":"BUY"|"SELL"|"HOLD","confidence":0-100,"reason":"maks 20 kata"}'
 )
 
-FUNDAMENTAL = {
-    "BBCA.JK": {"PE": "23.4x", "PBV": "4.1x", "ROE": "18.2%", "DY": "2.1%", "rating": "Strong Buy"},
-    "TLKM.JK": {"PE": "13.2x", "PBV": "2.3x", "ROE": "17.5%", "DY": "5.4%", "rating": "Hold"},
-    "ASII.JK": {"PE": "11.8x", "PBV": "1.6x", "ROE": "14.8%", "DY": "4.2%", "rating": "Buy"},
-    "BBRI.JK": {"PE": "14.1x", "PBV": "2.2x", "ROE": "15.9%", "DY": "5.8%", "rating": "Buy"},
-    "GOTO.JK": {"PE": "N/A",   "PBV": "3.8x", "ROE": "-4.2%", "DY": "0%",   "rating": "Speculative"},
-}
-TICKERS = list(FUNDAMENTAL.keys())
+# ─── 45 Saham LQ45 IDX ──────────────────────────────────────────────────────
+TICKERS = [
+    "AALI.JK", "ADRO.JK", "AKRA.JK", "AMRT.JK", "ANTM.JK",
+    "ASII.JK", "BBCA.JK", "BBNI.JK", "BBRI.JK", "BBTN.JK",
+    "BMRI.JK", "BRIS.JK", "BUKA.JK", "CPIN.JK", "CTRA.JK",
+    "EXCL.JK", "GGRM.JK", "GOTO.JK", "ICBP.JK", "INCO.JK",
+    "INDF.JK", "INKP.JK", "INTP.JK", "ITMG.JK", "KLBF.JK",
+    "MAPI.JK", "MBMA.JK", "MDKA.JK", "MEDC.JK", "MIKA.JK",
+    "MNCN.JK", "PGAS.JK", "PGEO.JK", "PTBA.JK", "SMGR.JK",
+    "TLKM.JK", "TOWR.JK", "TPIA.JK", "UNTR.JK", "UNVR.JK",
+    "ACES.JK", "BRPT.JK", "EMTK.JK", "HRUM.JK", "BJTM.JK",
+]
 WIB = timezone(timedelta(hours=7))
 
 # ─── Konfigurasi RSS ──────────────────────────────────────────────────────────
 TICKER_QUERIES = {
-    "BBCA.JK": "BBCA BCA bank saham IDX",
-    "TLKM.JK": "TLKM Telkom saham IDX",
-    "ASII.JK": "ASII Astra saham IDX",
-    "BBRI.JK": "BBRI BRI bank saham IDX",
-    "GOTO.JK": "GOTO GoTo Gojek saham IDX",
-    "XAU":     "harga emas XAU gold price",
+    "IDX_GENERAL": "saham IDX IHSG bursa efek Indonesia terbaru",
+    "XAU":         "harga emas XAU gold price",
 }
 
 POSITIVE_KW = {"naik","tumbuh","profit","laba","untung","meningkat","positif","bullish",
@@ -115,23 +115,23 @@ async def fetch_rss_news(query: str) -> tuple[str, float]:
         return "", 0.0
 
 
-async def fetch_news_cached(ticker: str) -> tuple[str, float]:
-    """Ambil berita nyata dari Google News RSS, cache 5 menit, fallback ke stub."""
-    now_ts  = time_module.time()
-    cached  = _news_cache.get(ticker)
+async def fetch_news_cached(ticker: str = "IDX_GENERAL") -> tuple[str, float]:
+    """Ambil berita IDX umum dari Google News RSS, cache 5 menit, fallback ke stub."""
+    cache_key = "XAU" if ticker == "XAU" else "IDX_GENERAL"
+    now_ts    = time_module.time()
+    cached    = _news_cache.get(cache_key)
     if cached and (now_ts - cached[2]) < NEWS_CACHE_TTL:
         return cached[0], cached[1]
 
-    query            = TICKER_QUERIES.get(ticker, ticker)
-    headline, senti  = await fetch_rss_news(query)
+    query           = TICKER_QUERIES.get(cache_key, "saham IDX IHSG")
+    headline, senti = await fetch_rss_news(query)
 
     if headline:
-        _news_cache[ticker] = (headline, senti, now_ts)
-        print(f"[rss] {ticker}: {headline[:60]}")
+        _news_cache[cache_key] = (headline, senti, now_ts)
+        print(f"[rss] {cache_key}: {headline[:60]}")
         return headline, senti
 
-    # Fallback ke stub jika RSS gagal
-    return fetch_news(ticker)
+    return fetch_news("BBCA.JK")  # fallback ke stub
 
 
 # ─── Jam pasar IHSG ───────────────────────────────────────────────────────────
@@ -263,7 +263,10 @@ def calc_bollinger(prices: list[float], n: int = 20, k: float = 2.0):
 
 # ─── Fetch semua harga secara paralel ─────────────────────────────────────────
 async def fetch_all_prices() -> dict[str, float]:
-    loop = asyncio.get_event_loop()
+    """Fetch harga semua LQ45 dalam batch 15 agar tidak kena rate limit."""
+    loop       = asyncio.get_event_loop()
+    batch_size = 15
+    results    = {}
 
     def get_price(ticker: str):
         try:
@@ -273,9 +276,15 @@ async def fetch_all_prices() -> dict[str, float]:
             print(f"[price] Error {ticker}: {e}")
             return ticker, None
 
-    tasks   = [loop.run_in_executor(None, get_price, t) for t in TICKERS]
-    results = await asyncio.gather(*tasks)
-    return {t: p for t, p in results if p is not None}
+    for i in range(0, len(TICKERS), batch_size):
+        batch        = TICKERS[i:i + batch_size]
+        tasks        = [loop.run_in_executor(None, get_price, t) for t in batch]
+        batch_result = await asyncio.gather(*tasks)
+        results.update({t: p for t, p in batch_result if p is not None})
+        if i + batch_size < len(TICKERS):
+            await asyncio.sleep(0.3)
+
+    return results
 
 
 # ─── Fetch berita ──────────────────────────────────────────────────────────────
@@ -393,26 +402,45 @@ def rule_qwen(agent_name: str) -> dict:
 
 # ─── Gemini API ────────────────────────────────────────────────────────────────
 def build_prompt(agent_name: str, trigger: str = "") -> str:
-    ag    = sim.agents[agent_name]
-    lines = []
+    """Kirim hanya top-10 sinyal terkuat + saham yg dipegang ke Gemini."""
+    ag = sim.agents[agent_name]
+
+    # Skor tiap ticker berdasarkan kekuatan sinyal
+    scored = []
     for t in TICKERS:
         ph    = sim.price_history[t]
         price = sim.prices.get(t, 0)
         if not price or len(ph) < 2:
             continue
-        rsi  = calc_rsi(ph)
-        ma7  = calc_ma(ph, 7)
-        ma20 = calc_ma(ph, 20)
-        mom  = calc_momentum(ph)
-        h    = ag["holdings"][t]
-        pos  = f"{h['positions']//LOT_SIZE}lot" if h["positions"] > 0 else "0lot"
-        ma7_s  = f"{ma7:.0f}"  if ma7  else "-"
-        ma20_s = f"{ma20:.0f}" if ma20 else "-"
-        news_s = f"{sim.news_sentiment[t]:+.1f}"
+        rsi   = calc_rsi(ph)
+        mom   = calc_momentum(ph)
+        held  = ag["holdings"][t]["positions"] > 0
+        score = abs(rsi - 50) + abs(mom) * 5 + (20 if held else 0)
+        scored.append((score, t))
+
+    # Top-10 + saham yang dipegang (agar tidak tiba-tiba di-ignore)
+    top = {t for _, t in sorted(scored, reverse=True)[:10]}
+    top |= {t for t in TICKERS if ag["holdings"][t]["positions"] > 0}
+
+    lines = []
+    for t in sorted(top):
+        ph     = sim.price_history[t]
+        price  = sim.prices.get(t, 0)
+        if not price or len(ph) < 2:
+            continue
+        rsi    = calc_rsi(ph)
+        ma7    = calc_ma(ph, 7)
+        ma20   = calc_ma(ph, 20)
+        mom    = calc_momentum(ph)
+        h      = ag["holdings"][t]
+        pos    = f"{h['positions']//LOT_SIZE}lot" if h["positions"] > 0 else "0lot"
         lines.append(
-            f"{t}|{price:.0f}|RSI:{rsi:.0f}|MA7:{ma7_s}|MA20:{ma20_s}"
-            f"|mom:{mom:+.1f}%|news:{news_s}|pos:{pos}"
+            f"{t}|{price:.0f}|RSI:{rsi:.0f}"
+            f"|MA7:{f'{ma7:.0f}' if ma7 else '-'}"
+            f"|MA20:{f'{ma20:.0f}' if ma20 else '-'}"
+            f"|mom:{mom:+.1f}%|pos:{pos}"
         )
+
     pf      = sim.portfolio_value(agent_name)
     pnl_pct = (pf - MODAL) / MODAL * 100
     kas_m   = f"{ag['cash']/1_000_000:.1f}M"
@@ -548,10 +576,12 @@ async def trading_loop():
             sim.price_history[t].append(p)
         sim.tick_count += 1
 
-        # Update berita berkala (RSS nyata, cache 5 menit)
+        # Update berita berkala — 1 query umum IDX untuk semua saham
         if sim.tick_count % NEWS_EVERY == 0:
+            headline, senti = await fetch_news_cached("IDX_GENERAL")
             for t in TICKERS:
-                sim.last_news[t], sim.news_sentiment[t] = await fetch_news_cached(t)
+                sim.last_news[t]      = headline
+                sim.news_sentiment[t] = senti
 
         # ── Layer 1: Rule-based (setiap LAYER1_EVERY tick) ──
         if sim.tick_count % LAYER1_EVERY == 0:
