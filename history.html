@@ -396,7 +396,7 @@ async function loadStatistik(){
       const topTicker = Object.entries(tickerCount).sort((a,b)=>b[1]-a[1])[0]?.[0] || '—';
 
       return { name, total:txs.length, buys:buys.length, sells:sells.length,
-               winRate, totalPnl, bestTrade, worstTrade, avgGain, topTicker };
+               wins:wins.length, winRate, totalPnl, bestTrade, worstTrade, avgGain, topTicker };
     }).sort((a,b) => b.totalPnl - a.totalPnl);
 
     // Render kartu
@@ -411,7 +411,7 @@ async function loadStatistik(){
           ${i<3?`<span class="rank-badge">${medals[i]}</span>`:''}
         </div>
         <div class="win-bar-wrap"><div class="win-bar" style="width:${s.winRate.toFixed(0)}%"></div></div>
-        <div class="win-pct">Win Rate: <b>${s.winRate.toFixed(1)}%</b> (${s.wins||wins} dari ${s.sells} SELL)</div>
+        <div class="win-pct">Win Rate: <b>${s.winRate.toFixed(1)}%</b> (${s.wins} dari ${s.sells} SELL)</div>
         <div class="agt-metric"><span class="agt-lbl">Total Transaksi</span><span class="agt-val">${s.total} (${s.buys} beli / ${s.sells} jual)</span></div>
         <div class="agt-metric"><span class="agt-lbl">Total P&L Terealisasi</span><span class="agt-val" style="color:${col}">${s.totalPnl>=0?'+':''}${fmtRp(s.totalPnl)}</span></div>
         <div class="agt-metric"><span class="agt-lbl">Trade Terbaik</span><span class="agt-val pos">${s.bestTrade>0?'+'+fmtRp(s.bestTrade):'—'}</span></div>
