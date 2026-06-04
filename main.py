@@ -204,7 +204,9 @@ class SimState:
                 "reason":      "Menunggu data...",
                 "last_ticker": TICKERS[0],
             }
-            for name in ("deepseek", "gemini", "qwen")
+            for name in ("deepseek", "gemini", "qwen",
+                             "bollinger", "macd", "mean_rev",
+                             "breakout", "stochastic", "triple_ma", "roc")
         }
 
     def portfolio_value(self, name: str) -> float:
@@ -259,6 +261,30 @@ def calc_bollinger(prices: list[float], n: int = 20, k: float = 2.0):
     mid    = sum(window) / n
     std    = (sum((p - mid) ** 2 for p in window) / n) ** 0.5
     return mid, mid + k * std, mid - k * std
+
+
+def calc_ema(prices: list[float], n: int) -> Optional[float]:
+    if len(prices) < n:
+        return None
+    k   = 2 / (n + 1)
+    ema = sum(prices[:n]) / n
+    for p in prices[n:]:
+        ema = p * k + ema * (1 - k)
+    return ema
+
+
+def calc_stochastic(prices: list[float], n: int = 14) -> Optional[float]:
+    if len(prices) < n:
+        return None
+    window = prices[-n:]
+    lo, hi = min(window), max(window)
+    return 50.0 if hi == lo else (prices[-1] - lo) / (hi - lo) * 100
+
+
+def calc_roc(prices: list[float], n: int = 10) -> float:
+    if len(prices) < n + 1:
+        return 0.0
+    return (prices[-1] - prices[-1 - n]) / prices[-1 - n] * 100
 
 
 # ─── Fetch semua harga secara paralel ─────────────────────────────────────────
@@ -398,6 +424,192 @@ def rule_qwen(agent_name: str) -> dict:
                     "reason": f"{t.replace('.JK','')} death cross MA7<MA20",
                 }
     return best
+
+
+def rule_bollinger(agent_name: str) -> dict:
+    """Bollinger Band: beli di lower band, jual di upper band."""
+    ag = sim.agents[agent_name]
+    best, best_score = {"ticker": TICKERS[0], "action": "HOLD", "confidence": 35, "reason": "Bollinger netral"}, 0
+    for t in TICKERS:
+        ph = sim.price_history[t]; price = sim.prices.get(t, 0)
+        if not price or len(ph) < 20: continue
+        _, bbu, bbl = calc_bollinger(ph)
+        if bbu is None: continue
+        h = ag["holdings"][t]
+        if price < bbl:
+            score = (bbl - price) / bbl * 100
+            if score > best_score:
+                best_score = score
+                best = {"ticker": t, "action": "BUY", "confidence": int(min(88, 55 + score * 8)),
+                        "reason": f"{t.replace('.JK','')} sentuh Bollinger lower band"}
+        elif price > bbu and h["positions"] > 0:
+            score = (price - bbu) / bbu * 100
+            if score > best_score:
+                best_score = score
+                best = {"ticker": t, "action": "SELL", "confidence": int(min(88, 55 + score * 8)),
+                        "reason": f"{t.replace('.JK','')} sentuh Bollinger upper band"}
+    return best
+
+
+def rule_macd(agent_name: str) -> dict:
+    """MACD: beli saat EMA12 > EMA26, jual saat EMA12 < EMA26 dengan posisi."""
+    ag = sim.agents[agent_name]
+    best, best_score = {"ticker": TICKERS[0], "action": "HOLD", "confidence": 35, "reason": "MACD netral"}, 0
+    for t in TICKERS:
+        ph = sim.price_history[t]; price = sim.prices.get(t, 0)
+        if not price or len(ph) < 26: continue
+        e12 = calc_ema(ph, 12); e26 = calc_ema(ph, 26)
+        if e12 is None or e26 is None: continue
+        macd = e12 - e26
+        h    = ag["holdings"][t]
+        diff = abs(macd)
+        if macd > 0 and h["positions"] == 0:
+            if diff > best_score:
+                best_score = diff
+                best = {"ticker": t, "action": "BUY", "confidence": int(min(85, 55 + diff / price * 5000)),
+                        "reason": f"{t.replace('.JK','')} MACD positif EMA12>EMA26"}
+        elif macd < 0 and h["positions"] > 0:
+            if diff > best_score:
+                best_score = diff
+                best = {"ticker": t, "action": "SELL", "confidence": int(min(85, 55 + diff / price * 5000)),
+                        "reason": f"{t.replace('.JK','')} MACD negatif EMA12<EMA26"}
+    return best
+
+
+def rule_mean_rev(agent_name: str) -> dict:
+    """Mean Reversion: beli saat harga jauh di bawah MA20, jual saat kembali ke MA20."""
+    ag = sim.agents[agent_name]
+    best, best_score = {"ticker": TICKERS[0], "action": "HOLD", "confidence": 35, "reason": "Harga dekat MA20"}, 0
+    for t in TICKERS:
+        ph = sim.price_history[t]; price = sim.prices.get(t, 0)
+        if not price or len(ph) < 20: continue
+        ma20 = calc_ma(ph, 20)
+        if ma20 is None: continue
+        dev  = (price - ma20) / ma20 * 100
+        h    = ag["holdings"][t]
+        if dev < -2.5:
+            score = abs(dev)
+            if score > best_score:
+                best_score = score
+                best = {"ticker": t, "action": "BUY", "confidence": int(min(88, 55 + score * 3)),
+                        "reason": f"{t.replace('.JK','')} {abs(dev):.1f}% di bawah MA20, revert peluang"}
+        elif dev > 1.0 and h["positions"] > 0:
+            score = abs(dev)
+            if score > best_score:
+                best_score = score
+                best = {"ticker": t, "action": "SELL", "confidence": int(min(85, 50 + score * 3)),
+                        "reason": f"{t.replace('.JK','')} harga kembali ke MA20"}
+    return best
+
+
+def rule_breakout(agent_name: str) -> dict:
+    """Breakout: beli saat harga tembus high 20 periode, jual saat tembus low."""
+    ag = sim.agents[agent_name]
+    best, best_score = {"ticker": TICKERS[0], "action": "HOLD", "confidence": 35, "reason": "Belum breakout"}, 0
+    for t in TICKERS:
+        ph = sim.price_history[t]; price = sim.prices.get(t, 0)
+        if not price or len(ph) < 22: continue
+        window  = ph[-21:-1]
+        hi20    = max(window); lo20 = min(window)
+        h       = ag["holdings"][t]
+        if price > hi20:
+            score = (price - hi20) / hi20 * 100
+            if score > best_score:
+                best_score = score
+                best = {"ticker": t, "action": "BUY", "confidence": int(min(88, 60 + score * 5)),
+                        "reason": f"{t.replace('.JK','')} breakout atas high 20 periode"}
+        elif price < lo20 and h["positions"] > 0:
+            score = (lo20 - price) / lo20 * 100
+            if score > best_score:
+                best_score = score
+                best = {"ticker": t, "action": "SELL", "confidence": int(min(88, 60 + score * 5)),
+                        "reason": f"{t.replace('.JK','')} breakdown bawah low 20 periode"}
+    return best
+
+
+def rule_stochastic(agent_name: str) -> dict:
+    """Stochastic: beli saat %K < 20 (oversold), jual saat %K > 80 (overbought)."""
+    ag = sim.agents[agent_name]
+    best, best_score = {"ticker": TICKERS[0], "action": "HOLD", "confidence": 35, "reason": "Stochastic netral"}, 0
+    for t in TICKERS:
+        ph = sim.price_history[t]; price = sim.prices.get(t, 0)
+        if not price or len(ph) < 14: continue
+        k = calc_stochastic(ph)
+        if k is None: continue
+        h = ag["holdings"][t]
+        if k < 20:
+            score = 20 - k
+            if score > best_score:
+                best_score = score
+                best = {"ticker": t, "action": "BUY", "confidence": int(min(88, 55 + score * 1.5)),
+                        "reason": f"{t.replace('.JK','')} Stochastic oversold %K={k:.0f}"}
+        elif k > 80 and h["positions"] > 0:
+            score = k - 80
+            if score > best_score:
+                best_score = score
+                best = {"ticker": t, "action": "SELL", "confidence": int(min(88, 55 + score * 1.5)),
+                        "reason": f"{t.replace('.JK','')} Stochastic overbought %K={k:.0f}"}
+    return best
+
+
+def rule_triple_ma(agent_name: str) -> dict:
+    """Triple MA: beli saat MA5>MA10>MA20 (bullish), jual saat MA5<MA10<MA20 (bearish)."""
+    ag = sim.agents[agent_name]
+    best, best_score = {"ticker": TICKERS[0], "action": "HOLD", "confidence": 35, "reason": "MA belum alignment"}, 0
+    for t in TICKERS:
+        ph = sim.price_history[t]; price = sim.prices.get(t, 0)
+        if not price or len(ph) < 20: continue
+        ma5  = calc_ma(ph, 5); ma10 = calc_ma(ph, 10); ma20 = calc_ma(ph, 20)
+        if None in (ma5, ma10, ma20): continue
+        h = ag["holdings"][t]
+        if ma5 > ma10 > ma20:
+            score = (ma5 - ma20) / ma20 * 100
+            if score > best_score:
+                best_score = score
+                best = {"ticker": t, "action": "BUY", "confidence": int(min(88, 55 + score * 5)),
+                        "reason": f"{t.replace('.JK','')} MA5>MA10>MA20 bullish alignment"}
+        elif ma5 < ma10 < ma20 and h["positions"] > 0:
+            score = (ma20 - ma5) / ma20 * 100
+            if score > best_score:
+                best_score = score
+                best = {"ticker": t, "action": "SELL", "confidence": int(min(88, 55 + score * 5)),
+                        "reason": f"{t.replace('.JK','')} MA5<MA10<MA20 bearish alignment"}
+    return best
+
+
+def rule_roc(agent_name: str) -> dict:
+    """Rate of Change: beli saat ROC positif kuat, jual saat ROC negatif dengan posisi."""
+    ag = sim.agents[agent_name]
+    best, best_score = {"ticker": TICKERS[0], "action": "HOLD", "confidence": 35, "reason": "ROC lemah"}, 0
+    for t in TICKERS:
+        ph = sim.price_history[t]; price = sim.prices.get(t, 0)
+        if not price or len(ph) < 11: continue
+        roc = calc_roc(ph, 10)
+        h   = ag["holdings"][t]
+        if roc > 1.5:
+            if roc > best_score:
+                best_score = roc
+                best = {"ticker": t, "action": "BUY", "confidence": int(min(88, 55 + roc * 5)),
+                        "reason": f"{t.replace('.JK','')} ROC+{roc:.1f}% momentum kuat"}
+        elif roc < -1.5 and h["positions"] > 0:
+            if abs(roc) > best_score:
+                best_score = abs(roc)
+                best = {"ticker": t, "action": "SELL", "confidence": int(min(88, 55 + abs(roc) * 5)),
+                        "reason": f"{t.replace('.JK','')} ROC{roc:.1f}% momentum negatif"}
+    return best
+
+
+RULE_BOTS = {
+    "deepseek":   rule_deepseek,
+    "qwen":       rule_qwen,
+    "bollinger":  rule_bollinger,
+    "macd":       rule_macd,
+    "mean_rev":   rule_mean_rev,
+    "breakout":   rule_breakout,
+    "stochastic": rule_stochastic,
+    "triple_ma":  rule_triple_ma,
+    "roc":        rule_roc,
+}
 
 
 # ─── Gemini API ────────────────────────────────────────────────────────────────
@@ -585,7 +797,7 @@ async def trading_loop():
 
         # ── Layer 1: Rule-based (setiap LAYER1_EVERY tick) ──
         if sim.tick_count % LAYER1_EVERY == 0:
-            for agent_name, rule_fn in [("deepseek", rule_deepseek), ("qwen", rule_qwen)]:
+            for agent_name, rule_fn in RULE_BOTS.items():
                 result = rule_fn(agent_name)
                 sim.agents[agent_name]["signal"]      = result["action"]
                 sim.agents[agent_name]["confidence"]  = result["confidence"]
@@ -739,7 +951,9 @@ class XauState:
                 "confidence":0,
                 "reason":    "Menunggu data...",
             }
-            for name in ("deepseek", "gemini", "qwen")
+            for name in ("deepseek", "gemini", "qwen",
+                             "bollinger", "macd", "mean_rev",
+                             "breakout", "stochastic", "triple_ma", "roc")
         }
 
     def portfolio_value(self, name: str) -> float:
