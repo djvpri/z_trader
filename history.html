@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="UTF-8"/>
@@ -73,7 +73,23 @@
   .rank1{color:#F39C12}.rank2{color:#888780}.rank3{color:#D85A30}
   .loading{text-align:center;padding:40px;color:var(--muted);font-size:13px}
 
-  @media(max-width:600px){.stat-grid{grid-template-columns:1fr 1fr}.chart-wrap{height:200px}}
+  /* Statistik */
+  .agt-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+  .agt-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:14px}
+  .agt-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .agt-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+  .agt-name{font-size:14px;font-weight:600}
+  .agt-metric{display:flex;justify-content:space-between;align-items:center;
+              padding:5px 0;border-bottom:0.5px solid var(--border);font-size:12px}
+  .agt-metric:last-child{border-bottom:none}
+  .agt-lbl{color:var(--muted)}
+  .agt-val{font-weight:500;text-align:right}
+  .win-bar-wrap{margin:10px 0 4px;background:var(--border);border-radius:4px;height:6px;overflow:hidden}
+  .win-bar{height:100%;background:var(--green);border-radius:4px;transition:width .4s}
+  .win-pct{font-size:10px;color:var(--muted);margin-bottom:10px}
+  .top-ticker{font-size:10px;background:var(--bg);padding:2px 8px;border-radius:5px;color:var(--muted)}
+  .rank-badge{margin-left:auto;font-size:11px;font-weight:700}
+  @media(max-width:600px){.stat-grid{grid-template-columns:1fr 1fr}.chart-wrap{height:200px}.agt-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -88,6 +104,7 @@
   <button class="tab active" data-tab="performa">Performa</button>
   <button class="tab" data-tab="transaksi">Transaksi</button>
   <button class="tab" data-tab="kompetisi">Kompetisi</button>
+  <button class="tab" data-tab="statistik">Statistik</button>
 </div>
 
 <!-- TAB: PERFORMA -->
@@ -141,6 +158,18 @@
         <tbody id="txBody"><tr><td colspan="7" class="empty">Klik "Muat" untuk tampilkan data</td></tr></tbody>
       </table>
     </div>
+  </div>
+</div>
+
+<!-- TAB: STATISTIK -->
+<div class="pane" id="pane-statistik">
+  <div class="card">
+    <div class="card-title">STATISTIK PERFORMA AGENT</div>
+    <div id="agtGrid"><div class="loading">Memuat data transaksi...</div></div>
+  </div>
+  <div class="card" style="margin-top:0">
+    <div class="card-title">PERBANDINGAN WIN RATE</div>
+    <div style="position:relative;height:200px"><canvas id="winChart"></canvas></div>
   </div>
 </div>
 
@@ -331,6 +360,95 @@ async function loadCompetition(){
     document.getElementById('compList').innerHTML = '<div class="empty">Database tidak terhubung</div>';
   }
 }
+
+// ── Load Statistik ────────────────────────────────────────────────────────
+let winChart = null;
+
+async function loadStatistik(){
+  const el = document.getElementById('agtGrid');
+  try {
+    const res  = await fetch('/history/transactions?limit=1000');
+    const data = await res.json();
+    if(!data.length){ el.innerHTML='<div class="empty">Belum ada transaksi tersimpan</div>'; return; }
+
+    // Group by agent
+    const agentMap = {};
+    data.forEach(tx => {
+      if(!agentMap[tx.agent_name]) agentMap[tx.agent_name] = [];
+      agentMap[tx.agent_name].push(tx);
+    });
+
+    // Hitung statistik per agent
+    const stats = Object.entries(agentMap).map(([name, txs]) => {
+      const sells     = txs.filter(t => t.type === 'SELL');
+      const buys      = txs.filter(t => t.type === 'BUY');
+      const gains     = sells.map(t => parseFloat(t.gain||0));
+      const wins      = gains.filter(g => g > 0);
+      const winRate   = sells.length ? (wins.length / sells.length * 100) : 0;
+      const totalPnl  = gains.reduce((a,b)=>a+b,0);
+      const bestTrade = gains.length ? Math.max(...gains) : 0;
+      const worstTrade= gains.length ? Math.min(...gains) : 0;
+      const avgGain   = gains.length ? gains.reduce((a,b)=>a+b,0)/gains.length : 0;
+
+      // Top ticker
+      const tickerCount = {};
+      txs.forEach(t=>{ if(t.ticker){ tickerCount[t.ticker]=(tickerCount[t.ticker]||0)+1; } });
+      const topTicker = Object.entries(tickerCount).sort((a,b)=>b[1]-a[1])[0]?.[0] || '—';
+
+      return { name, total:txs.length, buys:buys.length, sells:sells.length,
+               winRate, totalPnl, bestTrade, worstTrade, avgGain, topTicker };
+    }).sort((a,b) => b.totalPnl - a.totalPnl);
+
+    // Render kartu
+    const medals = ['🥇','🥈','🥉'];
+    el.innerHTML = '<div class="agt-grid">' + stats.map((s,i) => {
+      const col  = s.totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
+      const dotC = COLORS[s.name]||'#888';
+      return `<div class="agt-card">
+        <div class="agt-header">
+          <span class="agt-dot" style="background:${dotC}"></span>
+          <span class="agt-name">${s.name}</span>
+          ${i<3?`<span class="rank-badge">${medals[i]}</span>`:''}
+        </div>
+        <div class="win-bar-wrap"><div class="win-bar" style="width:${s.winRate.toFixed(0)}%"></div></div>
+        <div class="win-pct">Win Rate: <b>${s.winRate.toFixed(1)}%</b> (${s.wins||wins} dari ${s.sells} SELL)</div>
+        <div class="agt-metric"><span class="agt-lbl">Total Transaksi</span><span class="agt-val">${s.total} (${s.buys} beli / ${s.sells} jual)</span></div>
+        <div class="agt-metric"><span class="agt-lbl">Total P&L Terealisasi</span><span class="agt-val" style="color:${col}">${s.totalPnl>=0?'+':''}${fmtRp(s.totalPnl)}</span></div>
+        <div class="agt-metric"><span class="agt-lbl">Trade Terbaik</span><span class="agt-val pos">${s.bestTrade>0?'+'+fmtRp(s.bestTrade):'—'}</span></div>
+        <div class="agt-metric"><span class="agt-lbl">Trade Terburuk</span><span class="agt-val neg">${s.worstTrade<0?fmtRp(s.worstTrade):'—'}</span></div>
+        <div class="agt-metric"><span class="agt-lbl">Rata-rata Gain/Trade</span><span class="agt-val" style="color:${s.avgGain>=0?'var(--green)':'var(--red)'}">${s.avgGain>=0?'+':''}${fmtRp(s.avgGain)}</span></div>
+        <div class="agt-metric"><span class="agt-lbl">Paling sering trade</span><span class="agt-val"><span class="top-ticker">${s.topTicker}</span></span></div>
+      </div>`;
+    }).join('') + '</div>';
+
+    // Win rate bar chart
+    const labels   = stats.map(s=>s.name);
+    const winRates = stats.map(s=>parseFloat(s.winRate.toFixed(1)));
+    const bgColors = stats.map(s=>COLORS[s.name]||'#888');
+    if(winChart) winChart.destroy();
+    winChart = new Chart(document.getElementById('winChart'),{
+      type:'bar',
+      data:{labels, datasets:[{label:'Win Rate (%)', data:winRates, backgroundColor:bgColors, borderRadius:6}]},
+      options:{
+        responsive:true, maintainAspectRatio:false, animation:{duration:300},
+        plugins:{legend:{display:false}},
+        scales:{
+          x:{ticks:{color:'#888',font:{size:10}}, grid:{display:false}},
+          y:{min:0,max:100,ticks:{color:'#888',callback:v=>v+'%'}, grid:{color:'rgba(128,128,128,0.07)'}}
+        }
+      }
+    });
+  } catch(e) {
+    el.innerHTML = '<div class="empty">Database tidak terhubung</div>';
+  }
+}
+
+// Update tab handler untuk statistik
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if(btn.dataset.tab === 'statistik') loadStatistik();
+  });
+});
 
 // Init
 loadPerformance(100);
