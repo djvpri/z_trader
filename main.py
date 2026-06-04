@@ -900,264 +900,330 @@ async def trading_loop():
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# XAU/USD SIMULATOR
+# GLOBAL MARKETS SIMULATOR (Multi-Pair: Commodities, Crypto, Indices, Forex)
 # ════════════════════════════════════════════════════════════════════════════
-XAU_TICKER  = "GC=F"         # Gold Futures di yfinance
-XAU_MODAL   = 10_000.0       # $10,000 modal awal per AI
-XAU_BUY_PCT = 0.20           # beli 20% kas per BUY
-XAU_MIN_OZ  = 0.1            # minimum 0.1 oz per transaksi
+GLOBAL_PAIRS = {
+    "GC=F":     {"name": "Gold",      "short": "XAU"},
+    "SI=F":     {"name": "Silver",    "short": "XAG"},
+    "CL=F":     {"name": "Crude Oil", "short": "OIL"},
+    "NG=F":     {"name": "Nat Gas",   "short": "GAS"},
+    "BTC-USD":  {"name": "Bitcoin",   "short": "BTC"},
+    "ES=F":     {"name": "S&P 500",   "short": "SPX"},
+    "NQ=F":     {"name": "Nasdaq",    "short": "NDX"},
+    "EURUSD=X": {"name": "EUR/USD",   "short": "EUR"},
+    "GBPUSD=X": {"name": "GBP/USD",   "short": "GBP"},
+    "USDJPY=X": {"name": "USD/JPY",   "short": "JPY"},
+    "AUDUSD=X": {"name": "AUD/USD",   "short": "AUD"},
+}
+GLOBAL_TICKERS = list(GLOBAL_PAIRS.keys())
+GLOBAL_MODAL   = 10_000.0
+GLOBAL_BUY_PCT = 0.20
+FOREX_TICKERS  = [t for t in GLOBAL_TICKERS if "=X" in t]
 
-XAU_GEMINI_SYSTEM = (
-    "Kamu adalah AI trader XAU/USD (emas). Analisis data teknikal dan berita global. "
+GLOBAL_GEMINI_SYSTEM = (
+    "Kamu adalah AI trader global markets (komoditas, crypto, indeks, forex). "
+    "Pilih pair terbaik berdasarkan data teknikal. "
     "Respond HANYA dengan JSON: "
-    '{"action":"BUY"|"SELL"|"HOLD","confidence":0-100,"reason":"maks 20 kata"}'
+    '{"ticker":"KODE","action":"BUY"|"SELL"|"HOLD","confidence":0-100,"reason":"maks 20 kata"}'
 )
 
-XAU_NEWS_POOL = [
-    ("Fed sinyal pemangkasan suku bunga, emas menguat", 0.8),
-    ("Inflasi AS naik, dolar menguat, emas tertekan", -0.6),
-    ("Ketegangan geopolitik dorong permintaan safe haven", 0.7),
-    ("Data NFP AS kuat, dolar menguat, emas turun", -0.5),
-    ("Bank sentral global tambah cadangan emas", 0.6),
-    ("Yield obligasi AS naik, emas tertekan", -0.4),
-    ("Ketidakpastian pasar dorong aksi beli emas", 0.5),
-    ("Pelemahan dolar AS angkat harga emas spot", 0.6),
-    ("Kekhawatiran resesi global dorong safe haven", 0.7),
-    ("Data ekonomi AS solid, minat emas berkurang", -0.3),
+GLOBAL_NEWS_POOL = [
+    ("Fed pertahankan suku bunga, dolar melemah, aset berisiko naik", 0.6),
+    ("Inflasi AS melebihi ekspektasi, pasar global tertekan", -0.6),
+    ("Data NFP kuat dorong dolar AS menguat, emas turun", -0.4),
+    ("Ketegangan geopolitik picu aksi beli safe haven", 0.7),
+    ("Bank sentral Eropa naikkan suku bunga, EUR menguat", 0.5),
+    ("China rilis data PMI lemah, komoditas tertekan", -0.5),
+    ("Bitcoin tembus level resistensi kunci, sentimen bullish", 0.7),
+    ("Kekhawatiran resesi dorong rotasi ke obligasi dari saham", -0.3),
+    ("OPEC+ pangkas produksi, harga minyak melambung", 0.8),
+    ("Data PDB AS lebih baik dari perkiraan, risk-on rally", 0.6),
 ]
 
 
-class XauState:
+class GlobalState:
     def __init__(self):
-        self.price_history : list[float] = []
-        self.price          = 0.0
+        self.prices         : dict[str, float]       = {t: 0.0 for t in GLOBAL_TICKERS}
+        self.price_history  : dict[str, list[float]] = {t: []  for t in GLOBAL_TICKERS}
         self.tick_count     = 0
         self.last_news      = "Menunggu berita..."
         self.news_sentiment = 0.0
         self.agents         = self._init_agents()
         self.clients        : list[WebSocket] = []
         self.gemini_last_tick = 0
-        self.last_trigger   = ""
+        self.last_trigger     = ""
 
     def _init_agents(self):
         return {
             name: {
-                "name":      name,
-                "cash":      XAU_MODAL,
-                "positions": 0.0,
-                "avg_price": 0.0,
-                "trades":    [],
-                "signal":    "HOLD",
-                "confidence":0,
-                "reason":    "Menunggu data...",
+                "name":        name,
+                "cash":        GLOBAL_MODAL,
+                "holdings":    {t: {"positions": 0.0, "avg_price": 0.0} for t in GLOBAL_TICKERS},
+                "trades":      [],
+                "signal":      "HOLD",
+                "confidence":  0,
+                "reason":      "Menunggu data...",
+                "last_ticker": GLOBAL_TICKERS[0],
             }
-            for name in ("deepseek", "gemini", "qwen",
-                             "bollinger", "macd", "mean_rev",
-                             "breakout", "stochastic", "triple_ma", "roc")
+            for name in ("deepseek", "gemini", "qwen", "bollinger", "macd",
+                        "mean_rev", "breakout", "stochastic", "triple_ma", "roc")
         }
 
     def portfolio_value(self, name: str) -> float:
         ag = self.agents[name]
-        return ag["cash"] + ag["positions"] * self.price
+        return ag["cash"] + sum(
+            h["positions"] * self.prices.get(t, 0)
+            for t, h in ag["holdings"].items()
+        )
 
     def reset(self):
-        self.price_history  = []
-        self.price          = 0.0
-        self.tick_count     = 0
+        self.prices        = {t: 0.0 for t in GLOBAL_TICKERS}
+        self.price_history = {t: []  for t in GLOBAL_TICKERS}
+        self.tick_count    = 0
         self.gemini_last_tick = 0
-        self.last_trigger   = ""
-        self.agents         = self._init_agents()
+        self.last_trigger  = ""
+        self.agents        = self._init_agents()
 
 
-xau = XauState()
+glob = GlobalState()
 
 
-def is_xau_market_open() -> bool:
-    """XAU/USD tutup Sabtu 05:00 - Senin 05:00 WIB (approx weekend close)."""
+def is_global_market_open() -> bool:
+    """Tutup Sabtu seharian dan Minggu sebelum 22:00 WIB."""
     now = datetime.now(WIB)
     wd  = now.weekday()
     t   = now.time()
-    if wd == 5: return False                           # Sabtu tutup
-    if wd == 6 and t < time(5, 0): return False        # Minggu dini hari tutup
-    if wd == 4 and t >= time(23, 0): return False      # Jumat malam tutup
+    if wd == 5: return False
+    if wd == 6 and t < time(22, 0): return False
     return True
 
 
-def fetch_xau_price() -> Optional[float]:
-    try:
-        price = yf.Ticker(XAU_TICKER).fast_info.get("lastPrice")
-        return round(float(price), 2) if price else None
-    except Exception as e:
-        print(f"[xau] Error fetch: {e}")
-        return None
+async def fetch_global_prices() -> dict[str, float]:
+    """Fetch semua pair: yfinance dulu, Frankfurter fallback untuk forex."""
+    loop    = asyncio.get_event_loop()
+    results = {}
+
+    def _get(ticker: str):
+        try:
+            p = yf.Ticker(ticker).fast_info.get("lastPrice")
+            return ticker, float(p) if p else None
+        except:
+            return ticker, None
+
+    tasks = [loop.run_in_executor(None, _get, t) for t in GLOBAL_TICKERS]
+    for t, p in await asyncio.gather(*tasks):
+        if p:
+            results[t] = p
+
+    # Frankfurter fallback untuk forex yang gagal
+    failed_forex = [t for t in FOREX_TICKERS if t not in results]
+    if failed_forex:
+        try:
+            currencies = set()
+            for pair in failed_forex:
+                currencies.add(pair[:3])
+                currencies.add(pair[3:6])
+            currencies.discard("USD")
+            url  = f"https://api.frankfurter.app/latest?from=USD&to={','.join(currencies)}"
+            async with httpx.AsyncClient(timeout=8) as client:
+                r  = await client.get(url)
+                fx = r.json().get("rates", {})
+                fx["USD"] = 1.0
+            for pair in failed_forex:
+                base, quote = pair[:3], pair[3:6]
+                if base in fx and quote in fx:
+                    results[pair] = round(fx[quote] / fx[base], 6)
+        except Exception as e:
+            print(f"[global] Frankfurter fallback error: {e}")
+
+    return results
 
 
-def fetch_xau_news() -> tuple[str, float]:
+def fetch_global_news() -> tuple[str, float]:
     import random
-    return random.choice(XAU_NEWS_POOL)
+    return random.choice(GLOBAL_NEWS_POOL)
 
 
-def xau_rule_deepseek() -> dict:
-    ph  = xau.price_history
-    rsi = calc_rsi(ph)
-    mom = calc_momentum(ph)
-    ag  = xau.agents["deepseek"]
-    if rsi < 35 and mom > 0:
-        return {"action": "BUY",  "confidence": int(min(88, (35-rsi)*2.5+50)),
-                "reason": f"XAU RSI oversold {rsi:.0f}, momentum positif {mom:+.1f}%"}
-    if rsi > 65 and ag["positions"] > 0:
-        return {"action": "SELL", "confidence": int(min(88, (rsi-65)*2.5+50)),
-                "reason": f"XAU RSI overbought {rsi:.0f}, potensi koreksi"}
-    return {"action": "HOLD", "confidence": 45, "reason": f"XAU RSI netral {rsi:.0f}"}
+# ─── Rule-based Layer 1 (scan semua GLOBAL_TICKERS) ──────────────────────────
+def _global_rule_template(agent_name: str, strategy_fn) -> dict:
+    """Helper: scan semua pair, kembalikan sinyal terkuat."""
+    ag         = glob.agents[agent_name]
+    best       = {"ticker": GLOBAL_TICKERS[0], "action": "HOLD", "confidence": 35, "reason": "Belum ada sinyal"}
+    best_score = 0
+    for t in GLOBAL_TICKERS:
+        ph    = glob.price_history[t]
+        price = glob.prices.get(t, 0)
+        if not price or len(ph) < 2:
+            continue
+        result, score = strategy_fn(t, ph, price, ag["holdings"][t])
+        if score > best_score:
+            best_score = score
+            best = result
+    return best
 
 
-def xau_rule_qwen() -> dict:
-    ph    = xau.price_history
-    price = xau.price
-    ma7   = calc_ma(ph, 7)
-    ma20  = calc_ma(ph, 20)
-    ag    = xau.agents["qwen"]
-    if ma7 is None or ma20 is None:
-        return {"action": "HOLD", "confidence": 30, "reason": "Data MA belum cukup"}
-    diff  = abs((ma7 - ma20) / ma20 * 100)
-    if ma7 > ma20 and price > ma7:
-        return {"action": "BUY",  "confidence": int(min(88, 55+diff*8)),
-                "reason": "XAU golden cross MA7>MA20, tren naik"}
-    if ma7 < ma20 and price < ma7 and ag["positions"] > 0:
-        return {"action": "SELL", "confidence": int(min(88, 55+diff*8)),
-                "reason": "XAU death cross MA7<MA20, tren turun"}
-    return {"action": "HOLD", "confidence": 40, "reason": "XAU MA belum konfirmasi tren"}
+def glob_rule_deepseek(agent_name: str) -> dict:
+    def fn(t, ph, price, h):
+        rsi = calc_rsi(ph); mom = calc_momentum(ph)
+        short = GLOBAL_PAIRS[t]["short"]
+        if rsi < 35 and mom > 0:
+            s = (35-rsi)*2+mom
+            return {"ticker":t,"action":"BUY","confidence":int(min(88,(35-rsi)*2.5+50)),"reason":f"{short} RSI oversold {rsi:.0f} mom{mom:+.1f}%"}, s
+        if rsi > 65 and h["positions"] > 0:
+            s = (rsi-65)*2
+            return {"ticker":t,"action":"SELL","confidence":int(min(88,(rsi-65)*2.5+50)),"reason":f"{short} RSI overbought {rsi:.0f}"}, s
+        return {"ticker":t,"action":"HOLD","confidence":35,"reason":f"{short} RSI netral {rsi:.0f}"}, 0
+    return _global_rule_template(agent_name, fn)
 
 
-def xau_rule_bollinger(agent_name: str) -> dict:
-    ph = xau.price_history; price = xau.price
-    if not price or len(ph) < 20: return {"action":"HOLD","confidence":35,"reason":"Data belum cukup"}
-    _, bbu, bbl = calc_bollinger(ph)
-    if bbu is None: return {"action":"HOLD","confidence":35,"reason":"XAU Bollinger netral"}
-    pos = xau.agents[agent_name]["positions"]
-    if price < bbl:
-        return {"action":"BUY","confidence":int(min(88,55+(bbl-price)/bbl*800)),"reason":f"XAU di bawah Bollinger lower ${bbl:.0f}"}
-    if price > bbu and pos > 0:
-        return {"action":"SELL","confidence":int(min(88,55+(price-bbu)/bbu*800)),"reason":f"XAU di atas Bollinger upper ${bbu:.0f}"}
-    return {"action":"HOLD","confidence":40,"reason":"XAU dalam Bollinger band"}
+def glob_rule_qwen(agent_name: str) -> dict:
+    def fn(t, ph, price, h):
+        ma7 = calc_ma(ph,7); ma20 = calc_ma(ph,20)
+        short = GLOBAL_PAIRS[t]["short"]
+        if ma7 is None or ma20 is None: return {"ticker":t,"action":"HOLD","confidence":30,"reason":"MA belum siap"}, 0
+        diff = abs((ma7-ma20)/ma20*100)
+        if ma7>ma20 and price>ma7: return {"ticker":t,"action":"BUY","confidence":int(min(88,55+diff*8)),"reason":f"{short} golden cross MA7>MA20"}, diff
+        if ma7<ma20 and price<ma7 and h["positions"]>0: return {"ticker":t,"action":"SELL","confidence":int(min(88,55+diff*8)),"reason":f"{short} death cross MA7<MA20"}, diff
+        return {"ticker":t,"action":"HOLD","confidence":35,"reason":f"{short} MA netral"}, 0
+    return _global_rule_template(agent_name, fn)
 
 
-def xau_rule_macd(agent_name: str) -> dict:
-    ph = xau.price_history; price = xau.price
-    if not price or len(ph) < 26: return {"action":"HOLD","confidence":35,"reason":"Data MACD belum cukup"}
-    e12 = calc_ema(ph, 12); e26 = calc_ema(ph, 26)
-    if e12 is None or e26 is None: return {"action":"HOLD","confidence":35,"reason":"XAU MACD netral"}
-    macd = e12 - e26
-    pos  = xau.agents[agent_name]["positions"]
-    if macd > 0 and pos == 0:
-        return {"action":"BUY","confidence":int(min(85,55+abs(macd)/price*5000)),"reason":f"XAU MACD positif EMA12>EMA26"}
-    if macd < 0 and pos > 0:
-        return {"action":"SELL","confidence":int(min(85,55+abs(macd)/price*5000)),"reason":f"XAU MACD negatif EMA12<EMA26"}
-    return {"action":"HOLD","confidence":40,"reason":"XAU MACD netral"}
+def glob_rule_bollinger(agent_name: str) -> dict:
+    def fn(t, ph, price, h):
+        if len(ph)<20: return {"ticker":t,"action":"HOLD","confidence":30,"reason":"Data belum cukup"}, 0
+        _, bbu, bbl = calc_bollinger(ph)
+        short = GLOBAL_PAIRS[t]["short"]
+        if bbu is None: return {"ticker":t,"action":"HOLD","confidence":35,"reason":"Bollinger belum siap"}, 0
+        if price<bbl: s=(bbl-price)/bbl*100; return {"ticker":t,"action":"BUY","confidence":int(min(88,55+s*8)),"reason":f"{short} sentuh lower band"}, s
+        if price>bbu and h["positions"]>0: s=(price-bbu)/bbu*100; return {"ticker":t,"action":"SELL","confidence":int(min(88,55+s*8)),"reason":f"{short} sentuh upper band"}, s
+        return {"ticker":t,"action":"HOLD","confidence":35,"reason":f"{short} dalam band"}, 0
+    return _global_rule_template(agent_name, fn)
 
 
-def xau_rule_mean_rev(agent_name: str) -> dict:
-    ph = xau.price_history; price = xau.price
-    if not price or len(ph) < 20: return {"action":"HOLD","confidence":35,"reason":"Data belum cukup"}
-    ma20 = calc_ma(ph, 20)
-    if ma20 is None: return {"action":"HOLD","confidence":35,"reason":"XAU MA20 belum siap"}
-    dev  = (price - ma20) / ma20 * 100
-    pos  = xau.agents[agent_name]["positions"]
-    if dev < -1.5:
-        return {"action":"BUY","confidence":int(min(88,55+abs(dev)*3)),"reason":f"XAU {abs(dev):.1f}% di bawah MA20, mean reversion"}
-    if dev > 1.0 and pos > 0:
-        return {"action":"SELL","confidence":int(min(85,50+abs(dev)*3)),"reason":f"XAU kembali ke MA20 +{dev:.1f}%"}
-    return {"action":"HOLD","confidence":40,"reason":"XAU dekat MA20"}
+def glob_rule_macd(agent_name: str) -> dict:
+    def fn(t, ph, price, h):
+        if len(ph)<26: return {"ticker":t,"action":"HOLD","confidence":30,"reason":"Data MACD belum cukup"}, 0
+        e12=calc_ema(ph,12); e26=calc_ema(ph,26)
+        short = GLOBAL_PAIRS[t]["short"]
+        if e12 is None or e26 is None: return {"ticker":t,"action":"HOLD","confidence":35,"reason":"MACD belum siap"}, 0
+        macd=e12-e26; diff=abs(macd)
+        if macd>0 and h["positions"]==0: return {"ticker":t,"action":"BUY","confidence":int(min(85,55+diff/price*5000)),"reason":f"{short} MACD positif EMA12>EMA26"}, diff
+        if macd<0 and h["positions"]>0: return {"ticker":t,"action":"SELL","confidence":int(min(85,55+diff/price*5000)),"reason":f"{short} MACD negatif EMA12<EMA26"}, diff
+        return {"ticker":t,"action":"HOLD","confidence":35,"reason":f"{short} MACD netral"}, 0
+    return _global_rule_template(agent_name, fn)
 
 
-def xau_rule_breakout(agent_name: str) -> dict:
-    ph = xau.price_history; price = xau.price
-    if not price or len(ph) < 22: return {"action":"HOLD","confidence":35,"reason":"Data belum cukup"}
-    window = ph[-21:-1]; hi20 = max(window); lo20 = min(window)
-    pos    = xau.agents[agent_name]["positions"]
-    if price > hi20:
-        return {"action":"BUY","confidence":int(min(88,60+(price-hi20)/hi20*500)),"reason":f"XAU breakout high ${hi20:.0f}"}
-    if price < lo20 and pos > 0:
-        return {"action":"SELL","confidence":int(min(88,60+(lo20-price)/lo20*500)),"reason":f"XAU breakdown low ${lo20:.0f}"}
-    return {"action":"HOLD","confidence":40,"reason":"XAU belum breakout"}
+def glob_rule_mean_rev(agent_name: str) -> dict:
+    def fn(t, ph, price, h):
+        if len(ph)<20: return {"ticker":t,"action":"HOLD","confidence":30,"reason":"Data belum cukup"}, 0
+        ma20=calc_ma(ph,20); short=GLOBAL_PAIRS[t]["short"]
+        if ma20 is None: return {"ticker":t,"action":"HOLD","confidence":35,"reason":"MA20 belum siap"}, 0
+        dev=(price-ma20)/ma20*100
+        if dev<-2.0: return {"ticker":t,"action":"BUY","confidence":int(min(88,55+abs(dev)*3)),"reason":f"{short} {abs(dev):.1f}% di bawah MA20"}, abs(dev)
+        if dev>1.5 and h["positions"]>0: return {"ticker":t,"action":"SELL","confidence":int(min(85,50+abs(dev)*3)),"reason":f"{short} mean reversion +{dev:.1f}%"}, abs(dev)
+        return {"ticker":t,"action":"HOLD","confidence":35,"reason":f"{short} dekat MA20"}, 0
+    return _global_rule_template(agent_name, fn)
 
 
-def xau_rule_stochastic(agent_name: str) -> dict:
-    ph = xau.price_history
-    if len(ph) < 14: return {"action":"HOLD","confidence":35,"reason":"Data Stochastic belum cukup"}
-    k   = calc_stochastic(ph)
-    pos = xau.agents[agent_name]["positions"]
-    if k < 20:
-        return {"action":"BUY","confidence":int(min(88,55+(20-k)*1.5)),"reason":f"XAU Stochastic oversold %K={k:.0f}"}
-    if k > 80 and pos > 0:
-        return {"action":"SELL","confidence":int(min(88,55+(k-80)*1.5)),"reason":f"XAU Stochastic overbought %K={k:.0f}"}
-    return {"action":"HOLD","confidence":40,"reason":f"XAU Stochastic netral %K={k:.0f}"}
+def glob_rule_breakout(agent_name: str) -> dict:
+    def fn(t, ph, price, h):
+        if len(ph)<22: return {"ticker":t,"action":"HOLD","confidence":30,"reason":"Data belum cukup"}, 0
+        window=ph[-21:-1]; hi20=max(window); lo20=min(window); short=GLOBAL_PAIRS[t]["short"]
+        if price>hi20: s=(price-hi20)/hi20*100; return {"ticker":t,"action":"BUY","confidence":int(min(88,60+s*5)),"reason":f"{short} breakout high 20 periode"}, s
+        if price<lo20 and h["positions"]>0: s=(lo20-price)/lo20*100; return {"ticker":t,"action":"SELL","confidence":int(min(88,60+s*5)),"reason":f"{short} breakdown low 20 periode"}, s
+        return {"ticker":t,"action":"HOLD","confidence":35,"reason":f"{short} belum breakout"}, 0
+    return _global_rule_template(agent_name, fn)
 
 
-def xau_rule_triple_ma(agent_name: str) -> dict:
-    ph = xau.price_history; price = xau.price
-    if not price or len(ph) < 20: return {"action":"HOLD","confidence":35,"reason":"Data belum cukup"}
-    ma5  = calc_ma(ph, 5); ma10 = calc_ma(ph, 10); ma20 = calc_ma(ph, 20)
-    if None in (ma5, ma10, ma20): return {"action":"HOLD","confidence":35,"reason":"XAU Triple MA belum siap"}
-    pos = xau.agents[agent_name]["positions"]
-    if ma5 > ma10 > ma20:
-        return {"action":"BUY","confidence":int(min(88,55+(ma5-ma20)/ma20*500)),"reason":"XAU MA5>MA10>MA20 bullish alignment"}
-    if ma5 < ma10 < ma20 and pos > 0:
-        return {"action":"SELL","confidence":int(min(88,55+(ma20-ma5)/ma20*500)),"reason":"XAU MA5<MA10<MA20 bearish alignment"}
-    return {"action":"HOLD","confidence":40,"reason":"XAU Triple MA belum alignment"}
+def glob_rule_stochastic(agent_name: str) -> dict:
+    def fn(t, ph, price, h):
+        if len(ph)<14: return {"ticker":t,"action":"HOLD","confidence":30,"reason":"Data belum cukup"}, 0
+        k=calc_stochastic(ph); short=GLOBAL_PAIRS[t]["short"]
+        if k is None: return {"ticker":t,"action":"HOLD","confidence":35,"reason":"Stoch belum siap"}, 0
+        if k<20: return {"ticker":t,"action":"BUY","confidence":int(min(88,55+(20-k)*1.5)),"reason":f"{short} Stoch oversold %K={k:.0f}"}, 20-k
+        if k>80 and h["positions"]>0: return {"ticker":t,"action":"SELL","confidence":int(min(88,55+(k-80)*1.5)),"reason":f"{short} Stoch overbought %K={k:.0f}"}, k-80
+        return {"ticker":t,"action":"HOLD","confidence":35,"reason":f"{short} Stoch netral %K={k:.0f}"}, 0
+    return _global_rule_template(agent_name, fn)
 
 
-def xau_rule_roc(agent_name: str) -> dict:
-    ph  = xau.price_history
-    pos = xau.agents[agent_name]["positions"]
-    if len(ph) < 11: return {"action":"HOLD","confidence":35,"reason":"Data ROC belum cukup"}
-    roc = calc_roc(ph, 10)
-    if roc > 1.0:
-        return {"action":"BUY","confidence":int(min(88,55+roc*5)),"reason":f"XAU ROC+{roc:.1f}% momentum naik"}
-    if roc < -1.0 and pos > 0:
-        return {"action":"SELL","confidence":int(min(88,55+abs(roc)*5)),"reason":f"XAU ROC{roc:.1f}% momentum turun"}
-    return {"action":"HOLD","confidence":40,"reason":f"XAU ROC lemah {roc:+.1f}%"}
+def glob_rule_triple_ma(agent_name: str) -> dict:
+    def fn(t, ph, price, h):
+        if len(ph)<20: return {"ticker":t,"action":"HOLD","confidence":30,"reason":"Data belum cukup"}, 0
+        ma5=calc_ma(ph,5); ma10=calc_ma(ph,10); ma20=calc_ma(ph,20); short=GLOBAL_PAIRS[t]["short"]
+        if None in (ma5,ma10,ma20): return {"ticker":t,"action":"HOLD","confidence":35,"reason":"Triple MA belum siap"}, 0
+        if ma5>ma10>ma20: s=(ma5-ma20)/ma20*100; return {"ticker":t,"action":"BUY","confidence":int(min(88,55+s*5)),"reason":f"{short} MA5>MA10>MA20 bullish"}, s
+        if ma5<ma10<ma20 and h["positions"]>0: s=(ma20-ma5)/ma20*100; return {"ticker":t,"action":"SELL","confidence":int(min(88,55+s*5)),"reason":f"{short} MA5<MA10<MA20 bearish"}, s
+        return {"ticker":t,"action":"HOLD","confidence":35,"reason":f"{short} MA belum alignment"}, 0
+    return _global_rule_template(agent_name, fn)
 
 
-XAU_RULE_BOTS = {
-    "deepseek":   lambda n: xau_rule_deepseek(),
-    "qwen":       lambda n: xau_rule_qwen(),
-    "bollinger":  xau_rule_bollinger,
-    "macd":       xau_rule_macd,
-    "mean_rev":   xau_rule_mean_rev,
-    "breakout":   xau_rule_breakout,
-    "stochastic": xau_rule_stochastic,
-    "triple_ma":  xau_rule_triple_ma,
-    "roc":        xau_rule_roc,
+def glob_rule_roc(agent_name: str) -> dict:
+    def fn(t, ph, price, h):
+        if len(ph)<11: return {"ticker":t,"action":"HOLD","confidence":30,"reason":"Data belum cukup"}, 0
+        roc=calc_roc(ph,10); short=GLOBAL_PAIRS[t]["short"]
+        if roc>1.5: return {"ticker":t,"action":"BUY","confidence":int(min(88,55+roc*5)),"reason":f"{short} ROC+{roc:.1f}% momentum kuat"}, roc
+        if roc<-1.5 and h["positions"]>0: return {"ticker":t,"action":"SELL","confidence":int(min(88,55+abs(roc)*5)),"reason":f"{short} ROC{roc:.1f}% momentum turun"}, abs(roc)
+        return {"ticker":t,"action":"HOLD","confidence":35,"reason":f"{short} ROC lemah {roc:+.1f}%"}, 0
+    return _global_rule_template(agent_name, fn)
+
+
+GLOBAL_RULE_BOTS = {
+    "deepseek":   glob_rule_deepseek,
+    "qwen":       glob_rule_qwen,
+    "bollinger":  glob_rule_bollinger,
+    "macd":       glob_rule_macd,
+    "mean_rev":   glob_rule_mean_rev,
+    "breakout":   glob_rule_breakout,
+    "stochastic": glob_rule_stochastic,
+    "triple_ma":  glob_rule_triple_ma,
+    "roc":        glob_rule_roc,
 }
 
 
-def build_xau_prompt(trigger: str = "") -> str:
-    ag   = xau.agents["gemini"]
-    ph   = xau.price_history
-    rsi  = calc_rsi(ph)
-    ma7  = calc_ma(ph, 7)
-    ma20 = calc_ma(ph, 20)
-    mom  = calc_momentum(ph)
-    pos  = f"{ag['positions']:.1f}oz" if ag["positions"] > 0 else "0oz"
-    pf   = xau.portfolio_value("gemini")
-    pnl  = (pf - XAU_MODAL) / XAU_MODAL * 100
-    line = (f"XAU/USD|{xau.price:.2f}|RSI:{rsi:.0f}"
-            f"|MA7:{ma7:.1f if ma7 else '-'}|MA20:{ma20:.1f if ma20 else '-'}"
-            f"|mom:{mom:+.1f}%|news:{xau.news_sentiment:+.1f}"
-            f"|\"{xau.last_news[:40]}\"|pos:{pos}|cash:${ag['cash']:.0f}|pnl:{pnl:+.1f}%")
-    return line + (f"|trigger:{trigger}" if trigger else "")
+def build_global_prompt(trigger: str = "") -> str:
+    """Kirim top-10 sinyal terkuat ke Gemini."""
+    ag     = glob.agents["gemini"]
+    scored = []
+    for t in GLOBAL_TICKERS:
+        ph    = glob.price_history[t]
+        price = glob.prices.get(t, 0)
+        if not price or len(ph) < 2: continue
+        rsi   = calc_rsi(ph)
+        mom   = calc_momentum(ph)
+        held  = ag["holdings"][t]["positions"] > 0
+        score = abs(rsi-50) + abs(mom)*5 + (20 if held else 0)
+        scored.append((score, t))
+
+    top   = {t for _, t in sorted(scored, reverse=True)[:10]}
+    top  |= {t for t in GLOBAL_TICKERS if ag["holdings"][t]["positions"] > 0}
+    lines = []
+    for t in sorted(top):
+        ph    = glob.price_history[t]
+        price = glob.prices.get(t, 0)
+        if not price or len(ph) < 2: continue
+        rsi   = calc_rsi(ph); ma7=calc_ma(ph,7); ma20=calc_ma(ph,20); mom=calc_momentum(ph)
+        h     = ag["holdings"][t]
+        pos   = f"{h['positions']:.4g}" if h["positions"] > 0 else "0"
+        short = GLOBAL_PAIRS[t]["short"]
+        lines.append(f"{short}({t})|{price:.4g}|RSI:{rsi:.0f}|MA7:{f'{ma7:.4g}' if ma7 else '-'}|MA20:{f'{ma20:.4g}' if ma20 else '-'}|mom:{mom:+.1f}%|pos:{pos}")
+
+    pf      = glob.portfolio_value("gemini")
+    pnl_pct = (pf - GLOBAL_MODAL) / GLOBAL_MODAL * 100
+    kas_m   = f"${ag['cash']:.0f}"
+    summary = "\n".join(lines) + f"\n{kas_m}|pnl:{pnl_pct:+.1f}%"
+    if trigger: summary += f"\ntrigger:{trigger}"
+    return summary
 
 
-async def call_gemini_xau(prompt: str) -> dict:
+async def call_gemini_global(prompt: str) -> dict:
     if not GEMINI_API_KEY:
-        return {"action": "HOLD", "confidence": 0, "reason": "API key Gemini belum diset"}
+        return {"ticker": GLOBAL_TICKERS[0], "action": "HOLD", "confidence": 0, "reason": "API key Gemini belum diset"}
     async with httpx.AsyncClient(timeout=25) as client:
         resp = await client.post(
             f"{GEMINI_URL}?key={GEMINI_API_KEY}",
             headers={"Content-Type": "application/json"},
             json={
-                "system_instruction": {"parts": [{"text": XAU_GEMINI_SYSTEM}]},
+                "system_instruction": {"parts": [{"text": GLOBAL_GEMINI_SYSTEM}]},
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {"maxOutputTokens": 80, "temperature": 0.7,
                                      "responseMimeType": "application/json"},
@@ -1168,222 +1234,188 @@ async def call_gemini_xau(prompt: str) -> dict:
         return json.loads(raw)
 
 
-def execute_xau_trade(agent_name: str, action: str, price: float):
-    ag = xau.agents[agent_name]
-    if action == "BUY" and ag["cash"] > price * XAU_MIN_OZ:
-        oz   = round(ag["cash"] * XAU_BUY_PCT / price, 2)
-        if oz < XAU_MIN_OZ:
-            return
-        cost          = oz * price
-        ag["cash"]   -= cost
-        total         = round(ag["positions"] + oz, 2)
-        ag["avg_price"] = (ag["positions"] * ag["avg_price"] + oz * price) / total
-        ag["positions"] = total
-        ag["trades"].append({"type": "BUY", "price": price, "oz": oz,
-                             "time": datetime.now().isoformat()})
-    elif action == "SELL" and ag["positions"] > 0:
-        gain          = (price - ag["avg_price"]) * ag["positions"]
-        ag["cash"]   += ag["positions"] * price
-        ag["trades"].append({"type": "SELL", "price": price, "oz": ag["positions"],
-                             "gain": gain, "time": datetime.now().isoformat()})
-        ag["positions"] = 0.0
-        ag["avg_price"] = 0.0
+def execute_global_trade(agent_name: str, ticker: str, action: str, price: float):
+    ag = glob.agents[agent_name]
+    h  = ag["holdings"][ticker]
+    if action == "BUY" and ag["cash"] > price * 0.001:
+        spend       = ag["cash"] * GLOBAL_BUY_PCT
+        units       = round(spend / price, 6)
+        if units <= 0: return
+        ag["cash"] -= spend
+        total        = round(h["positions"] + units, 6)
+        h["avg_price"] = (h["positions"]*h["avg_price"] + units*price) / total
+        h["positions"] = total
+        ag["trades"].append({"type":"BUY","ticker":ticker,"price":price,"units":units,"time":datetime.now().isoformat()})
+    elif action == "SELL" and h["positions"] > 0:
+        gain        = (price - h["avg_price"]) * h["positions"]
+        ag["cash"] += h["positions"] * price
+        ag["trades"].append({"type":"SELL","ticker":ticker,"price":price,"units":h["positions"],"gain":gain,"time":datetime.now().isoformat()})
+        h["positions"] = 0.0
+        h["avg_price"] = 0.0
 
 
-async def broadcast_xau(payload: dict):
+def detect_global_trigger() -> list[str]:
+    for t in GLOBAL_TICKERS:
+        ph    = glob.price_history[t]
+        price = glob.prices.get(t, 0)
+        if not price or len(ph) < 2: continue
+        rsi  = calc_rsi(ph); mom = calc_momentum(ph)
+        _, bbu, bbl = calc_bollinger(ph)
+        prev = ph[-2]; short = GLOBAL_PAIRS[t]["short"]
+        ma20 = calc_ma(ph, 20)
+        if rsi < 32: return [f"{short} RSI oversold {rsi:.0f}"]
+        if rsi > 68: return [f"{short} RSI overbought {rsi:.0f}"]
+        if abs(mom) > 1.0: return [f"{short} momentum {mom:+.1f}%"]
+        if bbu and price > bbu: return [f"{short} Bollinger breakout atas"]
+        if bbl and price < bbl: return [f"{short} Bollinger breakout bawah"]
+        if ma20 and prev < ma20 <= price: return [f"{short} tembus MA20 ke atas"]
+        if ma20 and prev > ma20 >= price: return [f"{short} tembus MA20 ke bawah"]
+        if abs(glob.news_sentiment) > 0.5: return [f"{short} berita kuat {glob.news_sentiment:+.1f}"]
+    return []
+
+
+async def broadcast_global(payload: dict):
     dead = []
-    for ws in xau.clients:
-        try:
-            await ws.send_json(payload)
-        except Exception:
-            dead.append(ws)
-    for ws in dead:
-        xau.clients.remove(ws)
+    for ws in glob.clients:
+        try: await ws.send_json(payload)
+        except: dead.append(ws)
+    for ws in dead: glob.clients.remove(ws)
 
 
-async def xau_trading_loop():
-    print("[xau] XAU/USD trading loop dimulai")
+async def global_trading_loop():
+    print("[global] Global Markets trading loop dimulai")
     while True:
-        if not is_xau_market_open():
-            # Hitung next open
+        if not is_global_market_open():
             now = datetime.now(WIB)
             wd  = now.weekday()
-            if wd == 4:  # Jumat
-                nxt = datetime.combine(now.date() + timedelta(days=3), time(5, 0), tzinfo=WIB)
-            elif wd == 5:  # Sabtu
-                nxt = datetime.combine(now.date() + timedelta(days=2), time(5, 0), tzinfo=WIB)
-            else:
-                nxt = datetime.combine(now.date() + timedelta(days=1), time(5, 0), tzinfo=WIB)
-            await broadcast_xau({"type": "market_closed", "reason": "Akhir pekan (forex tutup)",
-                                  "next_open": nxt.isoformat(), "server_ts": now.isoformat()})
+            nxt = datetime.combine(
+                now.date() + timedelta(days=(6-wd) % 7 + 1),
+                time(22, 0), tzinfo=WIB
+            ) if wd == 6 else datetime.combine(
+                now.date() + timedelta(days=2 if wd==5 else 1),
+                time(22, 0), tzinfo=WIB
+            )
+            await broadcast_global({"type":"market_closed","reason":"Akhir pekan (global tutup)",
+                                     "next_open":nxt.isoformat(),"server_ts":now.isoformat()})
             await asyncio.sleep(60)
             continue
 
-        price = await asyncio.get_event_loop().run_in_executor(None, fetch_xau_price)
-        if price is None:
+        new_prices = await fetch_global_prices()
+        if not new_prices:
             await asyncio.sleep(POLL_INTERVAL)
             continue
 
-        xau.price = price
-        xau.price_history.append(price)
-        xau.tick_count += 1
+        glob.prices.update(new_prices)
+        for t, p in new_prices.items():
+            glob.price_history[t].append(p)
+        glob.tick_count += 1
 
-        if xau.tick_count % NEWS_EVERY == 0:
-            xau.last_news, xau.news_sentiment = await fetch_news_cached("XAU")
+        if glob.tick_count % NEWS_EVERY == 0:
+            glob.last_news, glob.news_sentiment = fetch_global_news()
 
-        # Layer 1: Rule-based (semua 9 bot)
-        if xau.tick_count % LAYER1_EVERY == 0:
-            for agent_name, rule_fn in XAU_RULE_BOTS.items():
+        # Layer 1
+        if glob.tick_count % LAYER1_EVERY == 0:
+            for agent_name, rule_fn in GLOBAL_RULE_BOTS.items():
                 result = rule_fn(agent_name)
-                xau.agents[agent_name]["signal"]     = result["action"]
-                xau.agents[agent_name]["confidence"] = result["confidence"]
-                xau.agents[agent_name]["reason"]     = result["reason"]
+                glob.agents[agent_name]["signal"]      = result["action"]
+                glob.agents[agent_name]["confidence"]  = result["confidence"]
+                glob.agents[agent_name]["reason"]      = result["reason"]
+                glob.agents[agent_name]["last_ticker"] = result["ticker"]
                 if result["action"] != "HOLD":
-                    execute_xau_trade(agent_name, result["action"], price)
+                    price = glob.prices.get(result["ticker"], 0)
+                    if price: execute_global_trade(agent_name, result["ticker"], result["action"], price)
 
-        # Layer 2: Gemini on trigger
-        triggers    = detect_trigger()  # reuse indikator teknikal
-        ticks_since = xau.tick_count - xau.gemini_last_tick
-        if xau.price_history and len(xau.price_history) >= 2:
-            ph   = xau.price_history
-            rsi  = calc_rsi(ph)
-            mom  = calc_momentum(ph)
-            trigs = []
-            if rsi < 40: trigs.append(f"RSI oversold {rsi:.0f}")
-            elif rsi > 60: trigs.append(f"RSI overbought {rsi:.0f}")
-            if abs(mom) > 0.5: trigs.append(f"momentum {mom:+.1f}%")
-            if abs(xau.news_sentiment) > 0.4: trigs.append(f"berita {xau.news_sentiment:+.1f}")
+        # Layer 2: Gemini
+        triggers    = detect_global_trigger()
+        ticks_since = glob.tick_count - glob.gemini_last_tick
+        if triggers and ticks_since >= GEMINI_COOLDOWN:
+            glob.gemini_last_tick = glob.tick_count
+            glob.last_trigger     = " & ".join(triggers[:2])
+            print(f"[global-trigger] {glob.last_trigger}")
+            try:
+                result  = await call_gemini_global(build_global_prompt(glob.last_trigger))
+                ticker  = result.get("ticker", GLOBAL_TICKERS[0])
+                action  = result.get("action", "HOLD")
+                if ticker not in GLOBAL_TICKERS:
+                    # Try matching short name
+                    ticker = next((t for t, v in GLOBAL_PAIRS.items() if v["short"] == ticker), GLOBAL_TICKERS[0])
+                glob.agents["gemini"]["signal"]      = action
+                glob.agents["gemini"]["confidence"]  = result.get("confidence", 0)
+                glob.agents["gemini"]["reason"]      = result.get("reason", "-")
+                glob.agents["gemini"]["last_ticker"] = ticker
+                if action != "HOLD" and glob.prices.get(ticker):
+                    execute_global_trade("gemini", ticker, action, glob.prices[ticker])
+            except Exception as e:
+                print(f"[global:gemini] Error: {e}")
+        elif not triggers:
+            glob.last_trigger = ""
 
-            if trigs and ticks_since >= GEMINI_COOLDOWN:
-                xau.gemini_last_tick = xau.tick_count
-                xau.last_trigger = " & ".join(trigs[:2])
-                try:
-                    result = await call_gemini_xau(build_xau_prompt(xau.last_trigger))
-                    xau.agents["gemini"]["signal"]     = result.get("action", "HOLD")
-                    xau.agents["gemini"]["confidence"] = result.get("confidence", 0)
-                    xau.agents["gemini"]["reason"]     = result.get("reason", "-")
-                    if result.get("action") != "HOLD":
-                        execute_xau_trade("gemini", result.get("action", "HOLD"), price)
-                except Exception as e:
-                    print(f"[xau:gemini] Error: {e}")
-            elif not trigs:
-                xau.last_trigger = ""
-
-        open_price = xau.price_history[0] if xau.price_history else price
+        # Payload
         payload = {
-            "type":      "tick",
-            "tick":      xau.tick_count,
-            "price":     round(price, 2),
-            "open":      round(open_price, 2),
-            "change":    round(price - open_price, 2),
-            "change_pct":round((price - open_price) / open_price * 100, 2),
-            "rsi":       round(calc_rsi(xau.price_history), 1),
-            "ma7":       round(calc_ma(xau.price_history, 7) or 0, 2),
-            "ma20":      round(calc_ma(xau.price_history, 20) or 0, 2),
-            "news":      xau.last_news,
-            "news_sentiment": round(xau.news_sentiment, 2),
-            "trigger":   xau.last_trigger,
+            "type":    "tick",
+            "tick":    glob.tick_count,
+            "prices":  {t: round(p, 6) for t, p in glob.prices.items() if p},
+            "pairs":   GLOBAL_PAIRS,
+            "trigger": glob.last_trigger,
+            "news":    glob.last_news,
+            "news_sentiment": round(glob.news_sentiment, 2),
             "agents": {
                 name: {
-                    "signal":     ag["signal"],
-                    "confidence": ag["confidence"],
-                    "reason":     ag["reason"],
-                    "cash":       round(ag["cash"], 2),
-                    "positions":  round(ag["positions"], 2),
-                    "avg_price":  round(ag["avg_price"], 2),
-                    "portfolio":  round(xau.portfolio_value(name), 2),
-                    "pnl":        round(xau.portfolio_value(name) - XAU_MODAL, 2),
-                    "pnl_pct":    round((xau.portfolio_value(name) - XAU_MODAL) / XAU_MODAL * 100, 2),
-                    "trades":     len(ag["trades"]),
+                    "signal":      ag["signal"],
+                    "confidence":  ag["confidence"],
+                    "reason":      ag["reason"],
+                    "last_ticker": ag["last_ticker"],
+                    "cash":        round(ag["cash"], 2),
+                    "holdings": {
+                        t: {"positions": round(h["positions"],6), "avg_price": round(h["avg_price"],6),
+                            "value": round(h["positions"]*glob.prices.get(t,0),2)}
+                        for t, h in ag["holdings"].items() if h["positions"] > 0
+                    },
+                    "portfolio": round(glob.portfolio_value(name), 2),
+                    "pnl":       round(glob.portfolio_value(name) - GLOBAL_MODAL, 2),
+                    "pnl_pct":   round((glob.portfolio_value(name) - GLOBAL_MODAL) / GLOBAL_MODAL * 100, 2),
+                    "trades":    len(ag["trades"]),
                 }
-                for name, ag in xau.agents.items()
+                for name, ag in glob.agents.items()
             },
         }
-        await broadcast_xau(payload)
+        await broadcast_global(payload)
         await asyncio.sleep(POLL_INTERVAL)
-# ─── FastAPI app ───────────────────────────────────────────────────────────────
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await db.init_db()
-    task1 = asyncio.create_task(trading_loop())
-    task2 = asyncio.create_task(xau_trading_loop())
-    yield
-    task1.cancel()
-    task2.cancel()
 
 
-app = FastAPI(title="Z Trader", lifespan=lifespan)
+# ─── Global Markets endpoints ─────────────────────────────────────────────────
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-@app.get("/")
-def root():
-    return FileResponse("index.html")
-
-
-@app.get("/status")
-def status():
-    return {"status": "ok", "ticks": sim.tick_count, "tickers": TICKERS}
-
-
-@app.post("/reset")
-def reset():
-    sim.reset()
-    return {"ok": True}
-
-
-@app.get("/history/transactions")
-async def history_transactions(agent: str = None, limit: int = 100):
-    return await db.get_transactions(agent, limit)
-
-
-@app.get("/history/portfolio")
-async def history_portfolio(agent: str = None, limit: int = 200):
-    return await db.get_portfolio_history(agent, limit)
-
-
-@app.get("/history/prices/{ticker}")
-async def history_prices(ticker: str, limit: int = 200):
-    return await db.get_price_history(ticker, limit)
-
-
-@app.get("/history/results")
-async def history_results(limit: int = 50):
-    return await db.get_competition_results(limit)
+@app.get("/global")
+def global_page():
+    return FileResponse("global.html")
 
 
 @app.get("/xauusd")
-def xauusd_page():
-    return FileResponse("xauusd.html")
+def xauusd_redirect():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/global")
 
 
-@app.post("/xau/reset")
-def xau_reset():
-    xau.reset()
+@app.post("/global/reset")
+def global_reset():
+    glob.reset()
     return {"ok": True}
 
 
-@app.websocket("/ws/xau")
-async def xau_websocket(ws: WebSocket):
+@app.websocket("/ws/global")
+async def global_websocket(ws: WebSocket):
     await ws.accept()
-    xau.clients.append(ws)
-    print(f"[xau-ws] Client terhubung. Total: {len(xau.clients)}")
+    glob.clients.append(ws)
+    print(f"[global-ws] Client terhubung. Total: {len(glob.clients)}")
     try:
         while True:
             data = await ws.receive_text()
             msg  = json.loads(data)
             if msg.get("action") == "reset":
-                xau.reset()
+                glob.reset()
     except WebSocketDisconnect:
-        xau.clients.remove(ws)
-        print(f"[xau-ws] Client terputus. Total: {len(xau.clients)}")
-
+        glob.clients.remove(ws)
+        print(f"[global-ws] Client terputus. Total: {len(glob.clients)}")
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):

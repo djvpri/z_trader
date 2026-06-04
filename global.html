@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Z Trader — Global Markets</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#f9f9f7;--card:#fff;--border:#e5e4de;--text:#1a1a18;
+    --muted:#6b6a65;--green:#1D9E75;--red:#E24B4A;--blue:#378ADD;--coral:#D85A30;
+  }
+  @media(prefers-color-scheme:dark){
+    :root{--bg:#1a1a18;--card:#242422;--border:#3a3a38;--text:#e2e0d6;--muted:#888780}
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,sans-serif}
+  body{background:var(--bg);color:var(--text);padding:1rem}
+  .topbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:1rem}
+  .back-btn{padding:5px 12px;border:0.5px solid var(--border);border-radius:8px;
+            background:transparent;color:var(--muted);font-size:12px;cursor:pointer;
+            text-decoration:none;display:inline-flex;align-items:center;gap:5px}
+  .status{font-size:11px;color:var(--muted);margin-left:auto}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
+  .dot.green{background:var(--green)}.dot.red{background:var(--red)}.dot.gray{background:var(--muted)}
+
+  #marketBanner{display:none;background:#1a1a18;color:#e2e0d6;border-radius:12px;
+                padding:20px 16px;margin-bottom:1rem;text-align:center}
+  #marketBanner.show{display:block}
+  .mkt-icon{font-size:32px;margin-bottom:8px}
+  .mkt-reason{font-size:15px;font-weight:600;margin-bottom:4px}
+  .mkt-next-lbl{font-size:11px;color:#888780;margin-bottom:6px}
+  .mkt-countdown{font-size:28px;font-weight:700;letter-spacing:2px;color:#f0c040;margin-bottom:4px}
+  .mkt-next-time{font-size:11px;color:#888780}
+
+  .prices-strip{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:.6rem;max-height:96px;overflow-y:auto;padding:2px}
+  .price-chip{background:var(--card);border:0.5px solid var(--border);border-radius:8px;
+              padding:4px 9px;font-size:11px;cursor:pointer;transition:border-color .15s;
+              display:flex;align-items:center;gap:4px;min-height:30px}
+  .price-chip.active{border-color:#185FA5;background:#e6f1fb}
+  .price-chip-cat{font-size:9px;color:var(--muted)}
+  .price-chip-name{font-weight:600;font-size:11px}
+  .price-chip-val{color:var(--muted);font-size:10px}
+  .price-chip-chg{font-size:9px}
+
+  .price-bar{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:.75rem}
+  .price-big{font-size:24px;font-weight:500}
+  .price-chg{font-size:13px}
+
+  .news-strip{background:var(--card);border:0.5px solid var(--border);border-radius:8px;
+              padding:6px 12px;margin-bottom:.75rem;display:flex;align-items:center;gap:8px;overflow:hidden}
+  .news-lbl{font-size:10px;font-weight:500;color:#185FA5;background:#e6f1fb;
+             padding:2px 7px;border-radius:6px;white-space:nowrap;flex-shrink:0}
+  .news-txt{font-size:12px;color:var(--muted);white-space:nowrap;animation:scroll-left 20s linear infinite}
+  @keyframes scroll-left{from{transform:translateX(50%)}to{transform:translateX(-100%)}}
+
+  .chart-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;
+              padding:1rem;margin-bottom:.75rem}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:10px;max-height:44px;overflow:hidden}
+  .ldot{display:inline-block;width:10px;height:3px;border-radius:1px;margin-right:4px;vertical-align:middle}
+
+  .ai-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:10px;margin-bottom:.75rem}
+  .ai-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:12px;cursor:pointer;transition:box-shadow .15s}
+  .ai-card:hover{box-shadow:0 4px 16px rgba(0,0,0,0.10)}
+  .ai-card.leader{border:2px solid var(--green)}.ai-card.loser{border:2px solid var(--red)}
+  .ai-hdr{display:flex;align-items:center;gap:7px;margin-bottom:3px}
+  .ai-name{font-size:14px;font-weight:500}
+  .ai-model{font-size:10px;color:var(--muted);margin-bottom:8px}
+  .stat-lbl{font-size:10px;color:var(--muted);margin-top:5px}
+  .stat-val{font-size:14px;font-weight:500}
+  .stat-val.pos{color:var(--green)}.stat-val.neg{color:var(--red)}
+  .sig-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;
+              border-radius:6px;font-size:11px;font-weight:500;margin-top:7px}
+  .sig-badge.BUY{background:#eaf3de;color:#3B6D11}
+  .sig-badge.SELL{background:#fcebeb;color:#A32D2D}
+  .sig-badge.HOLD{background:#faeeda;color:#854F0B}
+  .reason{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.45;
+           border-left:2px solid var(--border);padding-left:6px;min-height:28px}
+  #trigger-badge{font-size:10px;color:#f0c040;margin-bottom:4px;min-height:14px}
+
+  .bottom{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .panel{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:12px}
+  .panel-title{font-size:11px;color:var(--muted);font-weight:500;letter-spacing:.04em;margin-bottom:8px}
+  .log-list{display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto}
+  .log-item{display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px;border-radius:7px;font-size:11px}
+  .log-item.buy{background:#eaf3de}.log-item.sell{background:#fcebeb}
+  .log-who{font-weight:500;min-width:52px}
+  .log-act.buy{color:var(--green);font-weight:500}.log-act.sell{color:var(--red);font-weight:500}
+  .log-txt{color:var(--muted);flex:1;min-width:0;word-break:break-word}
+  .log-ts{color:var(--muted);white-space:nowrap;font-size:10px;margin-left:auto}
+  .rank-list{display:flex;flex-direction:column;gap:5px}
+  .rank-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:7px;background:var(--bg);font-size:12px}
+  .rank-num{font-weight:500;color:var(--muted);min-width:16px}
+  .log-filter{background:none;border:0.5px solid var(--border);border-radius:6px;
+              padding:4px 8px;font-size:10px;cursor:pointer;color:var(--muted);transition:all .15s;min-height:28px;white-space:nowrap}
+  .log-filter.active{background:var(--text);color:var(--bg);border-color:var(--text)}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:100;align-items:flex-end;justify-content:center}
+  .modal-overlay.open{display:flex}
+  .modal-box{background:var(--card);border-radius:16px 16px 0 0;padding:20px;width:100%;max-width:480px;max-height:85vh;overflow-y:auto;box-shadow:0 -4px 32px rgba(0,0,0,0.18)}
+  .modal-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .modal-title{font-size:15px;font-weight:600}
+  .modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)}
+  .modal-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:13px;gap:8px}
+  .modal-row:last-child{border-bottom:none}
+  .modal-lbl{color:var(--muted)}.modal-val{font-weight:500;text-align:right;word-break:break-word}
+
+  @media(max-width:600px){.bottom{grid-template-columns:1fr}.ai-grid{grid-template-columns:1fr 1fr}.price-big{font-size:20px}}
+  @media(max-width:400px){.ai-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="/" class="back-btn">&#8592; IDX</a>
+  <span style="font-size:13px;font-weight:600">&#127758; Global Markets</span>
+  <span style="font-size:11px;color:var(--muted)">Komoditas · Crypto · Indeks · Forex · Modal $10,000</span>
+  <div class="status" id="status"><span class="dot gray"></span>Menghubungkan...</div>
+</div>
+
+<div id="marketBanner">
+  <div class="mkt-icon">&#128308;</div>
+  <div class="mkt-reason" id="mktReason">Pasar Tutup</div>
+  <div class="mkt-next-lbl">Buka kembali dalam</div>
+  <div class="mkt-countdown" id="mktCountdown">--:--:--</div>
+  <div class="mkt-next-time" id="mktNextTime"></div>
+</div>
+
+<div class="prices-strip" id="pricesStrip"></div>
+
+<div class="price-bar">
+  <span class="price-big" id="curPrice">—</span>
+  <span style="font-size:12px;color:var(--muted)" id="pairLabel">XAU</span>
+  <span class="price-chg" id="curChg"></span>
+</div>
+
+<div class="news-strip">
+  <span class="news-lbl">GLOBAL NEWS</span>
+  <span class="news-txt" id="newsTxt">Menunggu data...</span>
+</div>
+
+<div class="chart-card">
+  <div class="legend">
+    <span><span class="ldot" style="background:#888780;height:2px"></span>Price</span>
+    <span><span class="ldot" style="background:#378ADD"></span>DeepSeek</span>
+    <span><span class="ldot" style="background:#1D9E75"></span>Gemini</span>
+    <span><span class="ldot" style="background:#D85A30"></span>Qwen</span>
+    <span><span class="ldot" style="background:#8E44AD"></span>Bollinger</span>
+    <span><span class="ldot" style="background:#F39C12"></span>MACD</span>
+    <span><span class="ldot" style="background:#00BCD4"></span>MeanRev</span>
+    <span><span class="ldot" style="background:#C0392B"></span>Breakout</span>
+    <span><span class="ldot" style="background:#607D8B"></span>Stoch</span>
+    <span><span class="ldot" style="background:#27AE60"></span>TripleMA</span>
+    <span><span class="ldot" style="background:#FF5722"></span>ROC</span>
+  </div>
+  <div style="position:relative;height:220px"><canvas id="mainChart"></canvas></div>
+</div>
+
+<div class="ai-grid">
+  <div class="ai-card" id="card-deepseek" onclick="openModal('deepseek')">
+    <div class="ai-hdr"><span class="dot" style="background:#378ADD"></span><span class="ai-name">DeepSeek</span></div>
+    <div class="ai-model">RSI + Momentum</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-deepseek">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-deepseek">—</div>
+    <div class="sig-badge HOLD" id="sig-deepseek">HOLD</div>
+    <div class="reason" id="rsn-deepseek">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-gemini" onclick="openModal('gemini')">
+    <div class="ai-hdr"><span class="dot" style="background:#1D9E75"></span><span class="ai-name">Gemini</span></div>
+    <div class="ai-model">gemini-2.0-flash</div>
+    <div id="trigger-badge">menunggu sinyal...</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-gemini">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-gemini">—</div>
+    <div class="sig-badge HOLD" id="sig-gemini">HOLD</div>
+    <div class="reason" id="rsn-gemini">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-qwen" onclick="openModal('qwen')">
+    <div class="ai-hdr"><span class="dot" style="background:#D85A30"></span><span class="ai-name">Qwen</span></div>
+    <div class="ai-model">MA Crossover</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-qwen">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-qwen">—</div>
+    <div class="sig-badge HOLD" id="sig-qwen">HOLD</div>
+    <div class="reason" id="rsn-qwen">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-bollinger" onclick="openModal('bollinger')">
+    <div class="ai-hdr"><span class="dot" style="background:#8E44AD"></span><span class="ai-name">Bollinger</span></div>
+    <div class="ai-model">Bollinger Band Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-bollinger">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-bollinger">—</div>
+    <div class="sig-badge HOLD" id="sig-bollinger">HOLD</div>
+    <div class="reason" id="rsn-bollinger">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-macd" onclick="openModal('macd')">
+    <div class="ai-hdr"><span class="dot" style="background:#F39C12"></span><span class="ai-name">MACD</span></div>
+    <div class="ai-model">MACD EMA Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-macd">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-macd">—</div>
+    <div class="sig-badge HOLD" id="sig-macd">HOLD</div>
+    <div class="reason" id="rsn-macd">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-mean_rev" onclick="openModal('mean_rev')">
+    <div class="ai-hdr"><span class="dot" style="background:#00BCD4"></span><span class="ai-name">MeanRev</span></div>
+    <div class="ai-model">Mean Reversion Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-mean_rev">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-mean_rev">—</div>
+    <div class="sig-badge HOLD" id="sig-mean_rev">HOLD</div>
+    <div class="reason" id="rsn-mean_rev">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-breakout" onclick="openModal('breakout')">
+    <div class="ai-hdr"><span class="dot" style="background:#C0392B"></span><span class="ai-name">Breakout</span></div>
+    <div class="ai-model">Breakout Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-breakout">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-breakout">—</div>
+    <div class="sig-badge HOLD" id="sig-breakout">HOLD</div>
+    <div class="reason" id="rsn-breakout">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-stochastic" onclick="openModal('stochastic')">
+    <div class="ai-hdr"><span class="dot" style="background:#607D8B"></span><span class="ai-name">Stochastic</span></div>
+    <div class="ai-model">Stochastic Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-stochastic">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-stochastic">—</div>
+    <div class="sig-badge HOLD" id="sig-stochastic">HOLD</div>
+    <div class="reason" id="rsn-stochastic">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-triple_ma" onclick="openModal('triple_ma')">
+    <div class="ai-hdr"><span class="dot" style="background:#27AE60"></span><span class="ai-name">TripleMA</span></div>
+    <div class="ai-model">Triple MA Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-triple_ma">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-triple_ma">—</div>
+    <div class="sig-badge HOLD" id="sig-triple_ma">HOLD</div>
+    <div class="reason" id="rsn-triple_ma">Menunggu data...</div>
+  </div>
+  <div class="ai-card" id="card-roc" onclick="openModal('roc')">
+    <div class="ai-hdr"><span class="dot" style="background:#FF5722"></span><span class="ai-name">ROC</span></div>
+    <div class="ai-model">Rate of Change Bot</div>
+    <div class="stat-lbl">Portfolio</div><div class="stat-val" id="pf-roc">—</div>
+    <div class="stat-lbl">P&L</div><div class="stat-val" id="pnl-roc">—</div>
+    <div class="sig-badge HOLD" id="sig-roc">HOLD</div>
+    <div class="reason" id="rsn-roc">Menunggu data...</div>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <span class="panel-title" style="margin-bottom:0">LOG TRANSAKSI</span>
+      <div id="logFilters" style="display:flex;gap:3px;flex-wrap:wrap">
+        <button class="log-filter active" data-filter="all">Semua</button>
+        <button class="log-filter" data-filter="gemini" style="color:#1D9E75">Gemini</button>
+        <button class="log-filter" data-filter="deepseek" style="color:#378ADD">DeepSeek</button>
+        <button class="log-filter" data-filter="qwen" style="color:#D85A30">Qwen</button>
+        <button class="log-filter" data-filter="bollinger" style="color:#8E44AD">Bollinger</button>
+        <button class="log-filter" data-filter="macd" style="color:#F39C12">MACD</button>
+        <button class="log-filter" data-filter="mean_rev" style="color:#00BCD4">MeanRev</button>
+        <button class="log-filter" data-filter="breakout" style="color:#C0392B">Breakout</button>
+        <button class="log-filter" data-filter="stochastic" style="color:#607D8B">Stoch</button>
+        <button class="log-filter" data-filter="triple_ma" style="color:#27AE60">TripleMA</button>
+        <button class="log-filter" data-filter="roc" style="color:#FF5722">ROC</button>
+      </div>
+    </div>
+    <div class="log-list" id="logList"><p style="font-size:11px;color:var(--muted)">Belum ada transaksi.</p></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">PERINGKAT</div>
+    <div class="rank-list" id="rankList"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <span class="modal-title" id="modalTitle">Detail Portfolio</span>
+      <button class="modal-close" onclick="document.getElementById('modalOverlay').classList.remove('open')">&#x2715;</button>
+    </div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+const MODAL_USD = 10000;
+const COLORS  = {
+  deepseek:'#378ADD',gemini:'#1D9E75',qwen:'#D85A30',
+  bollinger:'#8E44AD',macd:'#F39C12',mean_rev:'#00BCD4',
+  breakout:'#C0392B',stochastic:'#607D8B',triple_ma:'#27AE60',roc:'#FF5722'
+};
+const AGENTS  = ['deepseek','gemini','qwen','bollinger','macd','mean_rev','breakout','stochastic','triple_ma','roc'];
+const CAT_ICON = {Metal:'🥇',Energy:'🛢️',Crypto:'₿',Index:'📈',Forex:'💱'};
+const WS_URL   = (location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/ws/global';
+
+let chart, ws;
+let focusedPair   = 'GC=F';
+let pairsInfo     = {};
+let lastSignals   = {}; let prevTrades = {}; let prevPositions = {};
+let currentPrice  = 0;  let firstPrices = {}; let latestAgents = {};
+let currentNewsText = ''; let countdownTimer = null;
+AGENTS.forEach(a=>{lastSignals[a]='HOLD';prevTrades[a]=0;prevPositions[a]=0;});
+
+function fmtUSD(n){ return '$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) }
+function fmtSUSD(n){ return (n>=0?'+':'-')+fmtUSD(n) }
+function fmtPrice(p){ return p>100?p.toLocaleString('en-US',{maximumFractionDigits:2}):p.toLocaleString('en-US',{maximumFractionDigits:4}) }
+
+function initChart(){
+  if(chart) chart.destroy();
+  chart = new Chart(document.getElementById('mainChart'),{
+    type:'line',
+    data:{labels:[],datasets:[
+      {label:'Price',data:[],borderColor:'#888780',borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,yAxisID:'y'},
+      ...AGENTS.map(a=>({label:a,data:[],borderColor:COLORS[a],borderWidth:a==='gemini'?1.5:0.8,pointRadius:0,tension:0.3,fill:false,borderDash:a==='gemini'?[]:[4,3],yAxisID:'y2'}))
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:{duration:0},
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{maxTicksLimit:8,color:'#888'},grid:{color:'rgba(128,128,128,0.07)'}},
+        y:{position:'left',ticks:{color:'#888',callback:v=>'$'+fmtPrice(v)},grid:{color:'rgba(128,128,128,0.07)'}},
+        y2:{position:'right',ticks:{color:'#888',callback:v=>{let d=v-MODAL_USD;return (d>=0?'+':'-')+'$'+Math.round(Math.abs(d))}},grid:{display:false}}
+      }
+    }
+  });
+}
+
+function startCountdown(isoStr){
+  const target=new Date(isoStr);
+  if(countdownTimer) clearInterval(countdownTimer);
+  countdownTimer=setInterval(function(){
+    const diff=target-new Date();
+    if(diff<=0){clearInterval(countdownTimer);document.getElementById('mktCountdown').textContent='00:00:00';return;}
+    const h=Math.floor(diff/3600000),m=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);
+    document.getElementById('mktCountdown').textContent=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+  },1000);
+}
+
+function showMarketClosed(data){
+  document.getElementById('marketBanner').classList.add('show');
+  document.getElementById('mktReason').textContent=data.reason;
+  if(data.next_open){
+    const next=new Date(data.next_open);
+    document.getElementById('mktNextTime').textContent=next.toLocaleString('id-ID',{weekday:'long',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Jakarta'})+' WIB';
+    startCountdown(data.next_open);
+  }
+  document.getElementById('status').innerHTML='<span class="dot red"></span>Pasar tutup';
+}
+
+function hideMarketBanner(){
+  document.getElementById('marketBanner').classList.remove('show');
+  if(countdownTimer){clearInterval(countdownTimer);countdownTimer=null;}
+}
+
+function updatePricesStrip(prices){
+  const strip=document.getElementById('pricesStrip');
+  strip.innerHTML='';
+  Object.entries(prices).forEach(([t,p])=>{
+    const info=pairsInfo[t]||{};
+    const first=firstPrices[t]||p;
+    const chg=first?((p-first)/first*100):0;
+    const chip=document.createElement('div');
+    chip.className='price-chip'+(t===focusedPair?' active':'');
+    chip.onclick=()=>{focusedPair=t;updatePricesStrip(prices);updateFocusedPrice(prices);};
+    chip.innerHTML=(CAT_ICON[info.category]||'')
+      +'<span class="price-chip-name">'+(info.short||t)+'</span>'
+      +'<span class="price-chip-val">$'+fmtPrice(p)+'</span>'
+      +'<span class="price-chip-chg" style="color:'+(chg>=0?'#1D9E75':'#E24B4A')+'">'+(chg>=0?'+':'')+chg.toFixed(1)+'%</span>';
+    strip.appendChild(chip);
+  });
+}
+
+function updateFocusedPrice(prices){
+  const p=prices[focusedPair]||0;
+  const info=pairsInfo[focusedPair]||{};
+  const first=firstPrices[focusedPair]||p;
+  const chg=p-first; const chgPct=first?(chg/first*100):0;
+  document.getElementById('curPrice').textContent='$'+fmtPrice(p);
+  document.getElementById('pairLabel').textContent=(info.name||focusedPair);
+  const chgEl=document.getElementById('curChg');
+  chgEl.textContent=(chg>=0?'+':'')+fmtPrice(chg)+' ('+(chgPct>=0?'+':'')+chgPct.toFixed(2)+'%)';
+  chgEl.style.color=chg>=0?'var(--green)':'var(--red)';
+}
+
+function updateAgentCard(name,ag,allPf){
+  const pnl=ag.portfolio-MODAL_USD;
+  document.getElementById('pf-'+name).textContent=fmtUSD(ag.portfolio);
+  const pnlEl=document.getElementById('pnl-'+name);
+  pnlEl.textContent=fmtSUSD(pnl)+' ('+ag.pnl_pct.toFixed(2)+'%)';
+  pnlEl.className='stat-val '+(pnl>=0?'pos':'neg');
+  const sig=ag.signal,sigEl=document.getElementById('sig-'+name);
+  sigEl.className='sig-badge '+sig;
+  const icons={BUY:'▲',SELL:'▼',HOLD:'—'};
+  sigEl.textContent=icons[sig]+' '+sig+(ag.confidence?' · '+ag.confidence+'%':'');
+  document.getElementById('rsn-'+name).textContent=ag.reason;
+  const card=document.getElementById('card-'+name);
+  const maxPf=Math.max(...allPf),minPf=Math.min(...allPf);
+  card.className='ai-card'+(ag.portfolio===maxPf?' leader':ag.portfolio===minPf?' loser':'');
+  if(ag.trades>prevTrades[name]){
+    const ticker=ag.last_ticker||'GC=F';
+    const curPos=(ag.holdings&&ag.holdings[ticker])?ag.holdings[ticker].positions:0;
+    const prePos=prevPositions[name];
+    const type=curPos>prePos?'buy':'sell';
+    const units=type==='buy'?curPos-prePos:prePos;
+    addLog(name,type,units,ticker,currentPrice,ag);
+  }
+  prevTrades[name]=ag.trades;
+  prevPositions[name]=(ag.holdings&&ag.last_ticker)?((ag.holdings[ag.last_ticker]||{}).positions||0):0;
+  lastSignals[name]=sig;
+}
+
+function addLog(name,type,units,ticker,price,ag){
+  const el=document.getElementById('logList');
+  const emp=el.querySelector('p');if(emp)el.innerHTML='';
+  const now=new Date();
+  const ts=now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0')+':'+now.getSeconds().toString().padStart(2,'0');
+  const info=pairsInfo[ticker]||{short:ticker};
+  const stock='<span style="font-weight:600;color:#185FA5">['+info.short+']</span>';
+  const unitsStr=units.toFixed(units<0.01?6:units<1?4:2);
+  let label;
+  if(type==='buy'){
+    label=stock+' BUY '+unitsStr+' @ $'+fmtPrice(price);
+  } else {
+    const h=(ag.holdings&&ag.holdings[ticker])||{};
+    const pnl=Math.round((price-(h.avg_price||0))*units*100)/100;
+    const pCol=pnl>=0?'#1D9E75':'#E24B4A';
+    label=stock+' SELL '+unitsStr+' @ $'+fmtPrice(price)+' &bull; <span style="color:'+pCol+'">'+(pnl>=0?'+':'')+'$'+Math.abs(pnl).toFixed(2)+'</span>';
+  }
+  const d=document.createElement('div');
+  d.className='log-item '+type;d.dataset.agent=name;
+  d.innerHTML='<span class="log-who" style="color:'+COLORS[name]+'">'+name+'</span> <span class="log-act '+type+'">'+type.toUpperCase()+'</span> <span class="log-txt">'+label+'</span><span class="log-ts">'+ts+'</span>';
+  el.insertBefore(d,el.firstChild);
+  if(el.children.length>25)el.removeChild(el.lastChild);
+  applyFilter();
+}
+
+function updateRank(agents){
+  const data=Object.entries(agents).map(([name,ag])=>({name,pf:ag.portfolio,pnl:ag.portfolio-MODAL_USD})).sort((a,b)=>b.pf-a.pf);
+  const rl=document.getElementById('rankList');rl.innerHTML='';
+  data.forEach((r,i)=>{
+    const d=document.createElement('div');d.className='rank-row';
+    d.innerHTML='<span class="rank-num">'+(i+1)+'</span><span class="dot" style="background:'+COLORS[r.name]+'"></span><span style="flex:1;font-weight:500">'+(i===0?'&#128081; ':'')+r.name+'</span><span style="font-weight:500;color:'+(r.pnl>=0?'var(--green)':'var(--red)')+'">'+fmtSUSD(r.pnl)+'</span>';
+    rl.appendChild(d);
+  });
+}
+
+function openModal(name){
+  const ag=latestAgents[name];if(!ag)return;
+  const pnl=ag.portfolio-MODAL_USD,pCol=pnl>=0?'#1D9E75':'#E24B4A';
+  let holdHtml='';
+  if(!ag.holdings||Object.keys(ag.holdings).length===0){
+    holdHtml='<div class="modal-row"><span class="modal-lbl">Posisi</span><span class="modal-val" style="color:var(--muted)">Tidak ada posisi</span></div>';
+  } else {
+    holdHtml=Object.entries(ag.holdings).map(function([t,h]){
+      const info=pairsInfo[t]||{short:t};
+      return '<div class="modal-row"><span class="modal-lbl">'+info.short+'</span><span class="modal-val">'+h.positions.toFixed(4)+' @ $'+fmtPrice(h.avg_price)+' &nbsp;<span style="color:var(--muted);font-size:11px">≈ $'+fmtPrice(h.value)+'</span></span></div>';
+    }).join('');
+  }
+  const rows=[
+    ['Kas','$'+ag.cash.toLocaleString('en-US',{minimumFractionDigits:2})],
+    ['Total Portfolio',fmtUSD(ag.portfolio)],
+    ['P&amp;L','<span style="color:'+pCol+'">'+(pnl>=0?'+':'')+'$'+Math.abs(pnl).toFixed(2)+' ('+ag.pnl_pct.toFixed(2)+'%)</span>'],
+    ['Trades',ag.trades+' transaksi'],
+  ];
+  document.getElementById('modalTitle').innerHTML='<span style="color:'+COLORS[name]+'">&#9679;</span> '+name.charAt(0).toUpperCase()+name.slice(1)+' — Global Portfolio';
+  document.getElementById('modalBody').innerHTML='<div style="font-size:11px;color:var(--muted);font-weight:500;margin-bottom:6px">POSISI TERBUKA</div>'+holdHtml+'<div style="font-size:11px;color:var(--muted);font-weight:500;margin:10px 0 6px">RINGKASAN</div>'+rows.map(r=>'<div class="modal-row"><span class="modal-lbl">'+r[0]+'</span><span class="modal-val">'+r[1]+'</span></div>').join('');
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal(e){if(e.target===document.getElementById('modalOverlay'))document.getElementById('modalOverlay').classList.remove('open');}
+
+let activeFilter='all';
+function applyFilter(){document.querySelectorAll('#logList .log-item').forEach(el=>{el.style.display=(activeFilter==='all'||el.dataset.agent===activeFilter)?'':'none';});}
+document.getElementById('logFilters').addEventListener('click',function(e){
+  const btn=e.target.closest('.log-filter');if(!btn)return;
+  document.querySelectorAll('.log-filter').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');activeFilter=btn.dataset.filter;applyFilter();
+});
+
+function handleTick(data){
+  if(data.pairs) pairsInfo=data.pairs;
+  Object.entries(data.prices||{}).forEach(([t,p])=>{if(!firstPrices[t])firstPrices[t]=p;});
+  currentPrice=data.prices[focusedPair]||currentPrice;
+  latestAgents=data.agents;
+
+  updatePricesStrip(data.prices||{});
+  updateFocusedPrice(data.prices||{});
+
+  if(data.news&&data.news!=='Menunggu berita...'){
+    const newText='Global: '+data.news;
+    if(newText!==currentNewsText){currentNewsText=newText;const el=document.getElementById('newsTxt');el.style.animation='none';el.textContent=newText;void el.offsetWidth;el.style.animation='scroll-left 20s linear infinite';}
+  }
+
+  chart.data.labels.push('T'+data.tick);
+  chart.data.datasets[0].data.push(data.prices[focusedPair]||null);
+  AGENTS.forEach((a,i)=>{chart.data.datasets[i+1].data.push(data.agents[a]?data.agents[a].portfolio:null);});
+  if(chart.data.labels.length>80){chart.data.labels.shift();chart.data.datasets.forEach(d=>d.data.shift());}
+  chart.update('none');
+
+  const tb=document.getElementById('trigger-badge');
+  tb.textContent=data.trigger?'⚡ TRIGGER: '+data.trigger:'menunggu sinyal...';
+
+  const allPf=AGENTS.map(a=>data.agents[a]?data.agents[a].portfolio:0).filter(Boolean);
+  AGENTS.forEach(a=>{if(data.agents[a])updateAgentCard(a,data.agents[a],allPf);});
+  updateRank(data.agents);
+}
+
+function connect(){
+  ws=new WebSocket(WS_URL);
+  ws.onopen=()=>{document.getElementById('status').innerHTML='<span class="dot green"></span>Terhubung · Global Markets';};
+  ws.onmessage=(e)=>{const d=JSON.parse(e.data);if(d.type==='tick'){hideMarketBanner();handleTick(d);}else if(d.type==='market_closed'){showMarketClosed(d);}};
+  ws.onclose=()=>{document.getElementById('status').innerHTML='<span class="dot red"></span>Terputus — mencoba ulang...';setTimeout(connect,3000);};
+  ws.onerror=(err)=>{console.error('[ws] error',err);ws.close();};
+}
+
+initChart();
+connect();
+</script>
+</body>
+</html>
