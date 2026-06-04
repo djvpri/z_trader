@@ -83,6 +83,12 @@ async def _create_tables():
                 ts          TIMESTAMPTZ DEFAULT NOW()
             );
             CREATE INDEX IF NOT EXISTS idx_result_ts ON competition_results(ts);
+
+            CREATE TABLE IF NOT EXISTS sessions (
+                id         SERIAL PRIMARY KEY,
+                started_at TIMESTAMPTZ DEFAULT NOW(),
+                note       TEXT
+            );
         """)
 
 
@@ -147,6 +153,17 @@ async def save_competition_results(agents_data: list[dict]):
         print(f"[db] save_competition_results error: {e}")
 
 
+async def save_session_start():
+    if not pool:
+        return
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute("INSERT INTO sessions(note) VALUES($1)", "Server restart")
+        print("[db] Session baru dicatat")
+    except Exception as e:
+        print(f"[db] save_session error: {e}")
+
+
 # ─── Read ─────────────────────────────────────────────────────────────────────
 
 async def get_transactions(agent: str = None, limit: int = 100) -> list:
@@ -198,5 +215,15 @@ async def get_competition_results(limit: int = 50) -> list:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT * FROM competition_results ORDER BY ts DESC LIMIT $1", limit
+        )
+    return [dict(r) for r in rows]
+
+
+async def get_sessions(limit: int = 50) -> list:
+    if not pool:
+        return []
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM sessions ORDER BY started_at DESC LIMIT $1", limit
         )
     return [dict(r) for r in rows]

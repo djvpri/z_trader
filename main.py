@@ -1406,6 +1406,7 @@ async def global_trading_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.init_db()
+    await db.save_session_start()
     task1 = asyncio.create_task(trading_loop())
     task2 = asyncio.create_task(global_trading_loop())
     yield
@@ -1462,6 +1463,11 @@ async def history_prices(ticker: str, limit: int = 200):
 @app.get("/history/results")
 async def history_results(limit: int = 50):
     return await db.get_competition_results(limit)
+
+
+@app.get("/history/sessions")
+async def history_sessions(limit: int = 50):
+    return await db.get_sessions(limit)
 
 
 # ─── Global Markets endpoints ─────────────────────────────────────────────────
