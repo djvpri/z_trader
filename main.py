@@ -1383,6 +1383,63 @@ async def global_trading_loop():
         await asyncio.sleep(POLL_INTERVAL)
 
 
+# ─── FastAPI app ───────────────────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await db.init_db()
+    task1 = asyncio.create_task(trading_loop())
+    task2 = asyncio.create_task(global_trading_loop())
+    yield
+    task1.cancel()
+    task2.cancel()
+
+
+app = FastAPI(title="Z Trader", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/")
+def root():
+    return FileResponse("index.html")
+
+
+@app.get("/status")
+def status():
+    return {"status": "ok", "ticks": sim.tick_count, "tickers": TICKERS}
+
+
+@app.post("/reset")
+def reset():
+    sim.reset()
+    return {"ok": True}
+
+
+@app.get("/history/transactions")
+async def history_transactions(agent: str = None, limit: int = 100):
+    return await db.get_transactions(agent, limit)
+
+
+@app.get("/history/portfolio")
+async def history_portfolio(agent: str = None, limit: int = 200):
+    return await db.get_portfolio_history(agent, limit)
+
+
+@app.get("/history/prices/{ticker}")
+async def history_prices(ticker: str, limit: int = 200):
+    return await db.get_price_history(ticker, limit)
+
+
+@app.get("/history/results")
+async def history_results(limit: int = 50):
+    return await db.get_competition_results(limit)
+
+
 # ─── Global Markets endpoints ─────────────────────────────────────────────────
 
 @app.get("/global")
