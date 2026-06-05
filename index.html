@@ -452,6 +452,7 @@ function updateAgentCard(name, ag, allPf){
     const lots    = type === 'buy' ? curLots - preLots : preLots;
     addLog(name, type, lots, ticker, currentPrice, ag);
   }
+  addDetailBtn(name);
   prevTrades[name]   = ag.trades;
   prevHoldings[name] = Object.assign({}, ...Object.entries(ag.holdings).map(([t,h])=>({[t]:h.positions})));
   lastSignals[name]  = sig;
@@ -507,6 +508,8 @@ function updateRank(agents){
     rl.appendChild(d);
   });
 }
+
+function openBotPage(name,e){e.stopPropagation();window.open('/bot?agent='+name+'&market=idx','_blank');}
 
 function openModal(name){
   const ag = latestAgents[name];

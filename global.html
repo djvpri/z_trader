@@ -376,6 +376,20 @@ function updateFocusedPrice(prices){
   chgEl.style.color=chg>=0?'var(--green)':'var(--red)';
 }
 
+function addDetailBtn(name){
+  if(document.getElementById("det-"+name)) return;
+  const card=document.getElementById("card-"+name);
+  if(!card) return;
+  const btn=document.createElement("a");
+  btn.id="det-"+name;
+  btn.textContent="Detail ↗";
+  btn.style="display:block;text-align:center;margin-top:8px;font-size:10px;color:var(--muted);text-decoration:none;padding:4px;border:0.5px solid var(--border);border-radius:6px;";
+  btn.href="/bot?agent="+name+"&market=$market";
+  btn.target="_blank";
+  btn.onclick=function(e){e.stopPropagation();};
+  card.appendChild(btn);
+}
+
 function updateAgentCard(name,ag,allPf){
   const pnl=ag.portfolio-MODAL_USD;
   document.getElementById('pf-'+name).textContent=fmtUSD(ag.portfolio);
@@ -398,6 +412,7 @@ function updateAgentCard(name,ag,allPf){
     const units=type==='buy'?curPos-prePos:prePos;
     addLog(name,type,units,ticker,currentPrice,ag);
   }
+  addDetailBtn(name);
   prevTrades[name]=ag.trades;
   prevPositions[name]=(ag.holdings&&ag.last_ticker)?((ag.holdings[ag.last_ticker]||{}).positions||0):0;
   lastSignals[name]=sig;
@@ -437,6 +452,8 @@ function updateRank(agents){
     rl.appendChild(d);
   });
 }
+
+function openBotPage(name,e){e.stopPropagation();window.open('/bot?agent='+name+'&market=global','_blank');}
 
 function openModal(name){
   const ag=latestAgents[name];if(!ag)return;

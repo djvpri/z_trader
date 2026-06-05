@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Z Trader — Bot Detail</title>
+<style>
+  :root{--bg:#f9f9f7;--card:#fff;--border:#e5e4de;--text:#1a1a18;
+        --muted:#6b6a65;--green:#1D9E75;--red:#E24B4A;--blue:#378ADD}
+  @media(prefers-color-scheme:dark){
+    :root{--bg:#1a1a18;--card:#242422;--border:#3a3a38;--text:#e2e0d6;--muted:#888780}
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,sans-serif}
+  body{background:var(--bg);color:var(--text);padding:1rem;max-width:480px;margin:0 auto}
+
+  .topbar{display:flex;align-items:center;gap:8px;margin-bottom:1.25rem}
+  .back{padding:5px 12px;border:0.5px solid var(--border);border-radius:8px;
+        background:transparent;color:var(--muted);font-size:12px;cursor:pointer;
+        text-decoration:none;display:inline-flex;align-items:center;gap:5px}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%}
+  .status-dot{margin-left:auto;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px}
+
+  /* Hero signal */
+  .hero{background:var(--card);border:0.5px solid var(--border);border-radius:16px;
+        padding:20px;margin-bottom:12px;text-align:center}
+  .bot-name{font-size:13px;color:var(--muted);margin-bottom:4px}
+  .bot-title{font-size:20px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:16px}
+  .signal-big{font-size:48px;font-weight:800;letter-spacing:-1px;line-height:1}
+  .signal-big.BUY{color:var(--green)}
+  .signal-big.SELL{color:var(--red)}
+  .signal-big.HOLD{color:#B8860B}
+  .confidence{font-size:13px;color:var(--muted);margin-top:4px}
+  .reason-text{font-size:13px;color:var(--text);margin-top:10px;padding:10px 12px;
+               background:var(--bg);border-radius:8px;line-height:1.5}
+  .ticker-badge{display:inline-flex;align-items:center;gap:6px;background:var(--bg);
+                border:0.5px solid var(--border);border-radius:8px;padding:6px 14px;margin-top:12px}
+  .ticker-name{font-weight:700;font-size:15px}
+  .ticker-price{font-size:22px;font-weight:600}
+  .ticker-chg{font-size:12px}
+
+  /* Stats row */
+  .stats-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}
+  .stat-box{background:var(--card);border:0.5px solid var(--border);border-radius:12px;
+            padding:12px;text-align:center}
+  .stat-lbl{font-size:10px;color:var(--muted);margin-bottom:4px}
+  .stat-val{font-size:15px;font-weight:600}
+  .pos{color:var(--green)}.neg{color:var(--red)}
+
+  /* Holdings */
+  .section{background:var(--card);border:0.5px solid var(--border);border-radius:12px;
+           padding:14px;margin-bottom:12px}
+  .sec-title{font-size:11px;font-weight:500;color:var(--muted);letter-spacing:.04em;margin-bottom:10px}
+  .holding-row{display:flex;justify-content:space-between;align-items:center;
+               padding:7px 0;border-bottom:0.5px solid var(--border);font-size:13px}
+  .holding-row:last-child{border-bottom:none}
+  .empty{text-align:center;padding:16px;color:var(--muted);font-size:12px}
+
+  /* Trade log */
+  .trade-item{display:flex;align-items:center;gap:8px;padding:8px 0;
+              border-bottom:0.5px solid var(--border);font-size:12px}
+  .trade-item:last-child{border-bottom:none}
+  .badge-buy{background:#eaf3de;color:#3B6D11;padding:1px 7px;border-radius:5px;font-size:10px;font-weight:600}
+  .badge-sell{background:#fcebeb;color:#A32D2D;padding:1px 7px;border-radius:5px;font-size:10px;font-weight:600}
+  .trade-info{flex:1}
+  .trade-gain{font-size:11px;text-align:right}
+
+  /* Subscribe btn */
+  .sub-wrap{margin-bottom:12px}
+  .sub-btn-big{width:100%;padding:12px;border:1.5px solid var(--blue);border-radius:12px;
+               background:transparent;color:var(--blue);font-size:14px;font-weight:600;
+               cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px}
+  .sub-btn-big.subscribed{background:var(--blue);color:#fff}
+  .sub-note{text-align:center;font-size:10px;color:var(--muted);margin-top:6px}
+
+  /* Market closed */
+  .closed-banner{background:#1a1a18;color:#e2e0d6;border-radius:12px;padding:16px;
+                 text-align:center;margin-bottom:12px;display:none}
+  .closed-banner.show{display:block}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a id="backLink" href="/" class="back">&#8592; Kembali</a>
+  <span class="status-dot"><span class="dot" id="connDot" style="background:var(--muted)"></span><span id="connTxt">Menghubungkan...</span></span>
+</div>
+
+<div class="closed-banner" id="closedBanner">
+  ⏸ Pasar tutup — bot tidak aktif sementara
+</div>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="bot-name" id="botModel">—</div>
+  <div class="bot-title"><span class="dot" id="botDot" style="background:#888"></span><span id="botName">—</span></div>
+  <div class="signal-big HOLD" id="signalBig">HOLD</div>
+  <div class="confidence" id="confText">—</div>
+  <div class="reason-text" id="reasonText">Menunggu data...</div>
+  <div class="ticker-badge">
+    <span class="ticker-name" id="tickerName">—</span>
+    <span class="ticker-price" id="tickerPrice">—</span>
+    <span class="ticker-chg" id="tickerChg"></span>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-row">
+  <div class="stat-box"><div class="stat-lbl">Portfolio</div><div class="stat-val" id="stPf">—</div></div>
+  <div class="stat-box"><div class="stat-lbl">P&L</div><div class="stat-val" id="stPnl">—</div></div>
+  <div class="stat-box"><div class="stat-lbl">Trades</div><div class="stat-val" id="stTrades">—</div></div>
+</div>
+
+<!-- Subscribe -->
+<div class="sub-wrap">
+  <button class="sub-btn-big" id="subBtn" onclick="toggleSubscribe()">🔕 Langganan Sinyal</button>
+  <div class="sub-note">Dapatkan notifikasi browser saat bot ini BUY atau SELL</div>
+</div>
+
+<!-- Holdings -->
+<div class="section">
+  <div class="sec-title">POSISI TERBUKA</div>
+  <div id="holdingsEl"><div class="empty">Tidak ada posisi terbuka</div></div>
+</div>
+
+<!-- Trade history -->
+<div class="section">
+  <div class="sec-title">RIWAYAT TRANSAKSI</div>
+  <div id="tradesEl"><div class="empty">Memuat...</div></div>
+</div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────
+const params  = new URLSearchParams(location.search);
+const AGENT   = params.get('agent') || 'gemini';
+const MARKET  = params.get('market') || 'idx';
+const WS_URL  = (location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+(MARKET==='global'?'/ws/global':'/ws');
+const MODAL   = MARKET==='global' ? 10000 : 100_000_000;
+
+const AGENT_META = {
+  rsi_bot:    {label:'RSI + Momentum Bot', color:'#378ADD'},
+  gemini:     {label:'gemini-2.0-flash',   color:'#1D9E75'},
+  ma_bot:     {label:'MA Crossover Bot',   color:'#D85A30'},
+  bollinger:  {label:'Bollinger Band Bot', color:'#8E44AD'},
+  macd:       {label:'MACD EMA Bot',       color:'#F39C12'},
+  mean_rev:   {label:'Mean Reversion Bot', color:'#00BCD4'},
+  breakout:   {label:'Breakout Bot',       color:'#C0392B'},
+  stochastic: {label:'Stochastic Bot',     color:'#607D8B'},
+  triple_ma:  {label:'Triple MA Bot',      color:'#27AE60'},
+  roc:        {label:'Rate of Change Bot', color:'#FF5722'},
+};
+
+const meta = AGENT_META[AGENT] || {label:AGENT, color:'#888'};
+let firstPrice = 0, ws, subscribed = false;
+
+// Set back link
+const bl = document.getElementById('backLink');
+bl.href = MARKET==='global' ? '/global' : '/';
+
+// Bot header
+document.getElementById('botModel').textContent = meta.label;
+document.getElementById('botName').textContent  = AGENT;
+document.getElementById('botDot').style.background = meta.color;
+document.title = 'Z Trader — ' + AGENT;
+
+// Subscribe state
+subscribed = localStorage.getItem('z_sub_' + AGENT) === '1';
+updateSubBtn();
+
+function fmtMoney(n) {
+  if(MARKET==='global') return '$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return 'Rp '+Math.round(Math.abs(n)).toLocaleString('id-ID');
+}
+function fmtPrice(p, ticker) {
+  if(!p) return '—';
+  if(ticker && ticker.endsWith('.JK')) return 'Rp '+Math.round(p).toLocaleString('id-ID');
+  return '$'+p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
+}
+function fmtTs(ts){
+  const d=new Date(ts);
+  return d.toLocaleDateString('id-ID',{day:'2-digit',month:'short'})+' '+d.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+}
+
+function handleTick(data) {
+  const ag = data.agents && data.agents[AGENT];
+  if(!ag) return;
+
+  // Market closed check
+  const closed = data.type === 'market_closed';
+  document.getElementById('closedBanner').className = 'closed-banner' + (closed ? ' show' : '');
+
+  const sig = ag.signal || 'HOLD';
+  const sigEl = document.getElementById('signalBig');
+  sigEl.textContent = sig;
+  sigEl.className = 'signal-big ' + sig;
+
+  document.getElementById('confText').textContent  = 'Keyakinan: ' + (ag.confidence||0) + '%';
+  document.getElementById('reasonText').textContent = ag.reason || '—';
+
+  // Ticker & price
+  const ticker = ag.last_ticker || '';
+  const prices = data.prices || {};
+  const price  = MARKET==='global' ? (prices[ticker]||0) : (prices[ticker]||0);
+  if(!firstPrice && price) firstPrice = price;
+  const chg = firstPrice ? ((price-firstPrice)/firstPrice*100) : 0;
+
+  document.getElementById('tickerName').textContent  = ticker.replace('.JK','');
+  document.getElementById('tickerPrice').textContent = fmtPrice(price, ticker);
+  const chgEl = document.getElementById('tickerChg');
+  chgEl.textContent = (chg>=0?'+':'')+chg.toFixed(2)+'%';
+  chgEl.style.color = chg>=0 ? 'var(--green)' : 'var(--red)';
+
+  // Stats
+  const pnl = (ag.portfolio||MODAL) - MODAL;
+  document.getElementById('stPf').textContent = fmtMoney(ag.portfolio||MODAL);
+  const pnlEl = document.getElementById('stPnl');
+  pnlEl.textContent = (pnl>=0?'+':'-') + fmtMoney(pnl);
+  pnlEl.className = 'stat-val ' + (pnl>=0?'pos':'neg');
+  document.getElementById('stTrades').textContent = (ag.trades||0) + ' tx';
+
+  // Holdings
+  const hEl = document.getElementById('holdingsEl');
+  const holdings = ag.holdings || {};
+  if(!Object.keys(holdings).length) {
+    hEl.innerHTML = '<div class="empty">Tidak ada posisi terbuka</div>';
+  } else {
+    hEl.innerHTML = Object.entries(holdings).map(([t,h])=>
+      `<div class="holding-row">
+        <span style="font-weight:600">${t.replace('.JK','')}</span>
+        <span style="color:var(--muted)">${h.positions} ${MARKET==='global'?'unit':'lot'} @ ${fmtPrice(h.avg_price,t)}</span>
+        <span style="font-weight:500">≈ ${fmtMoney(h.value||0)}</span>
+      </div>`
+    ).join('');
+  }
+
+  // Notifikasi jika berlangganan & sinyal baru BUY/SELL
+  if(subscribed && (sig==='BUY'||sig==='SELL')) {
+    const prev = sessionStorage.getItem('prev_sig_'+AGENT);
+    if(prev !== sig) {
+      sessionStorage.setItem('prev_sig_'+AGENT, sig);
+      if(Notification.permission==='granted') {
+        const icon = sig==='BUY'?'🟢':'🔴';
+        new Notification(icon+' Z Trader — '+AGENT, {
+          body: sig+' '+ticker+' ('+ag.confidence+'%)\n'+(ag.reason||''),
+          tag: 'signal-'+AGENT, renotify: true,
+        });
+      }
+    }
+  }
+}
+
+// Subscribe
+function toggleSubscribe() {
+  if(subscribed) {
+    subscribed = false;
+    localStorage.removeItem('z_sub_'+AGENT);
+    updateSubBtn();
+    return;
+  }
+  if(!('Notification' in window)){ alert('Browser tidak mendukung notifikasi.'); return; }
+  if(Notification.permission==='denied'){ alert('Notifikasi diblokir. Aktifkan di pengaturan browser.'); return; }
+  Notification.requestPermission().then(p=>{
+    if(p==='granted'){
+      subscribed = true;
+      localStorage.setItem('z_sub_'+AGENT, '1');
+      updateSubBtn();
+      new Notification('✅ Z Trader', {body:'Berlangganan '+AGENT+' aktif!', tag:'sub-ok'});
+    }
+  });
+}
+
+function updateSubBtn() {
+  const btn = document.getElementById('subBtn');
+  btn.className = 'sub-btn-big' + (subscribed ? ' subscribed' : '');
+  btn.textContent = subscribed ? '🔔 Berlangganan (Aktif)' : '🔕 Langganan Sinyal';
+}
+
+// Load trade history
+async function loadTrades() {
+  try {
+    const res  = await fetch('/history/transactions?agent='+AGENT+'&limit=20');
+    const data = await res.json();
+    const el   = document.getElementById('tradesEl');
+    if(!data.length){ el.innerHTML='<div class="empty">Belum ada riwayat transaksi</div>'; return; }
+    el.innerHTML = data.map(r=>{
+      const gain = r.gain||0;
+      const gainHtml = r.type==='SELL'
+        ? `<span class="${gain>=0?'pos':'neg'}">${gain>=0?'+':'-'}${fmtMoney(gain)}</span>`
+        : '';
+      return `<div class="trade-item">
+        <span class="badge-${r.type.toLowerCase()}">${r.type}</span>
+        <div class="trade-info">
+          <div style="font-weight:500">${(r.ticker||'').replace('.JK','')}</div>
+          <div style="color:var(--muted);font-size:10px">${fmtTs(r.ts)} · ${fmtPrice(r.price,r.ticker)} · ${r.lots||r.units||'—'} ${MARKET==='global'?'unit':'lot'}</div>
+        </div>
+        <div class="trade-gain">${gainHtml}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    document.getElementById('tradesEl').innerHTML='<div class="empty">Database tidak terhubung</div>';
+  }
+}
+
+// WebSocket
+function connect() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen  = ()=>{ document.getElementById('connDot').style.background='var(--green)'; document.getElementById('connTxt').textContent='Live'; };
+  ws.onmessage = (e)=>{ const d=JSON.parse(e.data); if(d.type==='tick') handleTick(d); else if(d.type==='market_closed') document.getElementById('closedBanner').classList.add('show'); };
+  ws.onclose = ()=>{ document.getElementById('connDot').style.background='var(--muted)'; document.getElementById('connTxt').textContent='Terputus'; setTimeout(connect,3000); };
+}
+
+connect();
+loadTrades();
+// Refresh riwayat setiap 60 detik
+setInterval(loadTrades, 60000);
+</script>
+</body>
+</html>
