@@ -808,13 +808,15 @@ async def trading_loop():
                     if price:
                         await execute_trade(agent_name, result["ticker"], result["action"], price)
 
-        # ── Layer 2: Gemini saat trigger ──
+        # ── Layer 2: Gemini — trigger event ATAU review berkala setiap ~90 detik ──
         triggers    = detect_trigger()
         ticks_since = sim.tick_count - sim.gemini_last_tick
-        if triggers and ticks_since >= GEMINI_COOLDOWN:
+        force_call  = ticks_since >= 18   # review berkala setiap 18 tick = ~90 detik
+        if (triggers or force_call) and ticks_since >= GEMINI_COOLDOWN:
             sim.gemini_last_tick = sim.tick_count
-            sim.last_trigger     = " & ".join(triggers[:2])
-            print(f"[trigger] tick={sim.tick_count} → {sim.last_trigger}")
+            sim.last_trigger     = " & ".join(triggers[:2]) if triggers else ""
+            label = sim.last_trigger if sim.last_trigger else "analisis berkala"
+            print(f"[gemini-idx] tick={sim.tick_count} → {label}")
             try:
                 result = await call_gemini(build_prompt("gemini", sim.last_trigger))
                 ticker = result.get("ticker", TICKERS[0])
@@ -1357,19 +1359,20 @@ async def global_trading_loop():
                     price = glob.prices.get(result["ticker"], 0)
                     if price: execute_global_trade(agent_name, result["ticker"], result["action"], price)
 
-        # Layer 2: Gemini
+        # Layer 2: Gemini — trigger event ATAU review berkala setiap ~90 detik
         triggers    = detect_global_trigger()
         ticks_since = glob.tick_count - glob.gemini_last_tick
-        if triggers and ticks_since >= GEMINI_COOLDOWN:
+        force_call  = ticks_since >= 18
+        if (triggers or force_call) and ticks_since >= GEMINI_COOLDOWN:
             glob.gemini_last_tick = glob.tick_count
-            glob.last_trigger     = " & ".join(triggers[:2])
-            print(f"[global-trigger] {glob.last_trigger}")
+            glob.last_trigger     = " & ".join(triggers[:2]) if triggers else ""
+            label = glob.last_trigger if glob.last_trigger else "analisis berkala"
+            print(f"[gemini-global] tick={glob.tick_count} → {label}")
             try:
                 result  = await call_gemini_global(build_global_prompt(glob.last_trigger))
                 ticker  = result.get("ticker", GLOBAL_TICKERS[0])
                 action  = result.get("action", "HOLD")
                 if ticker not in GLOBAL_TICKERS:
-                    # Try matching short name
                     ticker = next((t for t, v in GLOBAL_PAIRS.items() if v["short"] == ticker), GLOBAL_TICKERS[0])
                 glob.agents["gemini"]["signal"]      = action
                 glob.agents["gemini"]["confidence"]  = result.get("confidence", 0)
