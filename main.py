@@ -882,6 +882,19 @@ async def trading_loop():
                 for name, ag in sim.agents.items()
             ]
             await db.save_portfolio_snapshots(snapshots)
+            # Simpan holdings detail untuk restore saat restart
+            holdings_data = [
+                {
+                    "name":     name,
+                    "cash":     float(ag["cash"]),
+                    "holdings": {
+                        t: {"positions": float(h["positions"]), "avg_price": float(h["avg_price"])}
+                        for t, h in ag["holdings"].items() if h["positions"] > 0
+                    }
+                }
+                for name, ag in sim.agents.items()
+            ]
+            await db.save_holdings_snapshot("idx", holdings_data)
 
         if sim.tick_count % RESULT_EVERY == 0:
             results = [
@@ -1399,7 +1412,64 @@ async def global_trading_loop():
             },
         }
         await broadcast_global(payload)
+
+        # Simpan holdings Global setiap SNAPSHOT_EVERY tick
+        if glob.tick_count % SNAPSHOT_EVERY == 0:
+            holdings_data = [
+                {
+                    "name":     name,
+                    "cash":     float(ag["cash"]),
+                    "holdings": {
+                        t: {"positions": float(h["positions"]), "avg_price": float(h["avg_price"])}
+                        for t, h in ag["holdings"].items() if h["positions"] > 0
+                    }
+                }
+                for name, ag in glob.agents.items()
+            ]
+            await db.save_holdings_snapshot("global", holdings_data)
+
         await asyncio.sleep(POLL_INTERVAL)
+
+
+# ─── Restore portfolio dari DB ───────────────────────────────────────────────
+async def restore_idx_from_db():
+    data = await db.get_latest_holdings("idx")
+    if not data:
+        print("[restore] IDX: tidak ada snapshot, mulai dari awal")
+        return
+    restored = 0
+    for name, state in data.items():
+        if name not in sim.agents:
+            continue
+        sim.agents[name]["cash"] = float(state["cash"])
+        for ticker, h in state["holdings"].items():
+            if ticker in sim.agents[name]["holdings"]:
+                sim.agents[name]["holdings"][ticker] = {
+                    "positions": float(h.get("positions", 0)),
+                    "avg_price": float(h.get("avg_price", 0)),
+                }
+        restored += 1
+    print(f"[restore] IDX: {restored} agent dipulihkan dari DB")
+
+
+async def restore_global_from_db():
+    data = await db.get_latest_holdings("global")
+    if not data:
+        print("[restore] Global: tidak ada snapshot, mulai dari awal")
+        return
+    restored = 0
+    for name, state in data.items():
+        if name not in glob.agents:
+            continue
+        glob.agents[name]["cash"] = float(state["cash"])
+        for ticker, h in state["holdings"].items():
+            if ticker in glob.agents[name]["holdings"]:
+                glob.agents[name]["holdings"][ticker] = {
+                    "positions": float(h.get("positions", 0)),
+                    "avg_price": float(h.get("avg_price", 0)),
+                }
+        restored += 1
+    print(f"[restore] Global: {restored} agent dipulihkan dari DB")
 
 
 # ─── FastAPI app ───────────────────────────────────────────────────────────────
@@ -1407,6 +1477,8 @@ async def global_trading_loop():
 async def lifespan(app: FastAPI):
     await db.init_db()
     await db.save_session_start()
+    await restore_idx_from_db()
+    await restore_global_from_db()
     task1 = asyncio.create_task(trading_loop())
     task2 = asyncio.create_task(global_trading_loop())
     yield

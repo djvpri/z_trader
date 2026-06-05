@@ -89,6 +89,16 @@ async def _create_tables():
                 started_at TIMESTAMPTZ DEFAULT NOW(),
                 note       TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS holdings_snapshot (
+                id         SERIAL PRIMARY KEY,
+                market     VARCHAR(10)  NOT NULL,
+                agent_name VARCHAR(20)  NOT NULL,
+                cash       FLOAT        NOT NULL,
+                holdings   JSONB        NOT NULL,
+                ts         TIMESTAMPTZ  DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_hold_market_agent ON holdings_snapshot(market, agent_name, ts DESC);
         """)
 
 
@@ -151,6 +161,41 @@ async def save_competition_results(agents_data: list[dict]):
             )
     except Exception as e:
         print(f"[db] save_competition_results error: {e}")
+
+
+async def save_holdings_snapshot(market: str, agents_data: list[dict]):
+    if not pool:
+        return
+    try:
+        import json
+        async with pool.acquire() as conn:
+            await conn.executemany(
+                "INSERT INTO holdings_snapshot(market, agent_name, cash, holdings) VALUES($1,$2,$3,$4::jsonb)",
+                [(market, a["name"], float(a["cash"]), json.dumps(a["holdings"])) for a in agents_data]
+            )
+    except Exception as e:
+        print(f"[db] save_holdings error: {e}")
+
+
+async def get_latest_holdings(market: str) -> dict:
+    """Ambil snapshot holdings terakhir per agent untuk market tertentu."""
+    if not pool:
+        return {}
+    import json
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT DISTINCT ON (agent_name) agent_name, cash, holdings
+            FROM holdings_snapshot
+            WHERE market = $1
+            ORDER BY agent_name, ts DESC
+        """, market)
+    return {
+        r["agent_name"]: {
+            "cash":     r["cash"],
+            "holdings": json.loads(r["holdings"]) if isinstance(r["holdings"], str) else dict(r["holdings"])
+        }
+        for r in rows
+    }
 
 
 async def save_session_start():
