@@ -308,9 +308,32 @@ function connect() {
   ws.onclose = ()=>{ document.getElementById('connDot').style.background='var(--muted)'; document.getElementById('connTxt').textContent='Terputus'; setTimeout(connect,3000); };
 }
 
+// Load data awal dari API (bekerja meski market tutup)
+async function loadInitialData() {
+  try {
+    const url = MARKET==='global' ? '/signal/global/'+AGENT : '/signal/'+AGENT;
+    const res  = await fetch(url);
+    const d    = await res.json();
+    if(d.error) return;
+
+    // Buat objek agent seperti format WebSocket
+    const ag = {
+      signal:      d.signal,
+      confidence:  d.confidence,
+      reason:      d.reason,
+      last_ticker: d.ticker,
+      portfolio:   d.portfolio,
+      pnl_pct:     d.pnl_pct,
+      trades:      d.trades || 0,
+      holdings:    d.holdings || {},
+    };
+    handleTick({ type:'tick', agents:{ [AGENT]: ag }, prices: d.prices || {} });
+  } catch(e) {}
+}
+
 connect();
+loadInitialData();
 loadTrades();
-// Refresh riwayat setiap 60 detik
 setInterval(loadTrades, 60000);
 </script>
 </body>

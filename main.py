@@ -1535,18 +1535,25 @@ def get_agent_signal(agent_name: str):
     """Sinyal terkini satu bot IDX tertentu. Contoh: /signal/gemini"""
     if agent_name not in sim.agents:
         return {"error": f"Agent '{agent_name}' tidak ditemukan. Tersedia: {list(sim.agents.keys())}"}
-    ag  = sim.agents[agent_name]
-    pf  = sim.portfolio_value(agent_name)
+    ag     = sim.agents[agent_name]
+    pf     = sim.portfolio_value(agent_name)
+    ticker = ag["last_ticker"]
     return {
         "market":     "IDX",
         "agent":      agent_name,
         "signal":     ag["signal"],
         "confidence": ag["confidence"],
         "reason":     ag["reason"],
-        "ticker":     ag["last_ticker"],
+        "ticker":     ticker,
+        "price":      round(sim.prices.get(ticker, 0), 2),
+        "prices":     {t: round(p, 2) for t, p in sim.prices.items() if p},
+        "holdings":   {t: {"positions": h["positions"]//LOT_SIZE, "avg_price": round(h["avg_price"],2),
+                            "value": round(h["positions"]*sim.prices.get(t,0))}
+                       for t, h in ag["holdings"].items() if h["positions"] > 0},
         "portfolio":  round(pf),
         "pnl":        round(pf - MODAL),
         "pnl_pct":    round((pf - MODAL) / MODAL * 100, 2),
+        "trades":     len(ag["trades"]),
         "timestamp":  datetime.now(WIB).isoformat(),
     }
 
@@ -1577,18 +1584,25 @@ def get_global_agent_signal(agent_name: str):
     """Sinyal terkini satu bot Global Markets. Contoh: /signal/global/gemini"""
     if agent_name not in glob.agents:
         return {"error": f"Agent '{agent_name}' tidak ditemukan. Tersedia: {list(glob.agents.keys())}"}
-    ag  = glob.agents[agent_name]
-    pf  = glob.portfolio_value(agent_name)
+    ag     = glob.agents[agent_name]
+    pf     = glob.portfolio_value(agent_name)
+    ticker = ag["last_ticker"]
     return {
         "market":     "Global",
         "agent":      agent_name,
         "signal":     ag["signal"],
         "confidence": ag["confidence"],
         "reason":     ag["reason"],
-        "ticker":     ag["last_ticker"],
+        "ticker":     ticker,
+        "price":      round(glob.prices.get(ticker, 0), 4),
+        "prices":     {t: round(p, 4) for t, p in glob.prices.items() if p},
+        "holdings":   {t: {"positions": round(h["positions"],4), "avg_price": round(h["avg_price"],4),
+                            "value": round(h["positions"]*glob.prices.get(t,0),2)}
+                       for t, h in ag["holdings"].items() if h["positions"] > 0},
         "portfolio":  round(pf, 2),
         "pnl":        round(pf - GLOBAL_MODAL, 2),
         "pnl_pct":    round((pf - GLOBAL_MODAL) / GLOBAL_MODAL * 100, 2),
+        "trades":     len(ag["trades"]),
         "timestamp":  datetime.now(WIB).isoformat(),
     }
 
