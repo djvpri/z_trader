@@ -1509,6 +1509,90 @@ def status():
     return {"status": "ok", "ticks": sim.tick_count, "tickers": TICKERS}
 
 
+@app.get("/signal")
+def get_all_signals():
+    """Sinyal terkini semua bot IDX."""
+    now = datetime.now(WIB).isoformat()
+    return {
+        "market": "IDX",
+        "timestamp": now,
+        "signals": {
+            name: {
+                "signal":     ag["signal"],
+                "confidence": ag["confidence"],
+                "reason":     ag["reason"],
+                "ticker":     ag["last_ticker"],
+                "portfolio":  round(sim.portfolio_value(name)),
+                "pnl_pct":    round((sim.portfolio_value(name) - MODAL) / MODAL * 100, 2),
+            }
+            for name, ag in sim.agents.items()
+        }
+    }
+
+
+@app.get("/signal/{agent_name}")
+def get_agent_signal(agent_name: str):
+    """Sinyal terkini satu bot IDX tertentu. Contoh: /signal/gemini"""
+    if agent_name not in sim.agents:
+        return {"error": f"Agent '{agent_name}' tidak ditemukan. Tersedia: {list(sim.agents.keys())}"}
+    ag  = sim.agents[agent_name]
+    pf  = sim.portfolio_value(agent_name)
+    return {
+        "market":     "IDX",
+        "agent":      agent_name,
+        "signal":     ag["signal"],
+        "confidence": ag["confidence"],
+        "reason":     ag["reason"],
+        "ticker":     ag["last_ticker"],
+        "portfolio":  round(pf),
+        "pnl":        round(pf - MODAL),
+        "pnl_pct":    round((pf - MODAL) / MODAL * 100, 2),
+        "timestamp":  datetime.now(WIB).isoformat(),
+    }
+
+
+@app.get("/signal/global/all")
+def get_all_global_signals():
+    """Sinyal terkini semua bot Global Markets."""
+    now = datetime.now(WIB).isoformat()
+    return {
+        "market": "Global",
+        "timestamp": now,
+        "signals": {
+            name: {
+                "signal":     ag["signal"],
+                "confidence": ag["confidence"],
+                "reason":     ag["reason"],
+                "ticker":     ag["last_ticker"],
+                "portfolio":  round(glob.portfolio_value(name), 2),
+                "pnl_pct":    round((glob.portfolio_value(name) - GLOBAL_MODAL) / GLOBAL_MODAL * 100, 2),
+            }
+            for name, ag in glob.agents.items()
+        }
+    }
+
+
+@app.get("/signal/global/{agent_name}")
+def get_global_agent_signal(agent_name: str):
+    """Sinyal terkini satu bot Global Markets. Contoh: /signal/global/gemini"""
+    if agent_name not in glob.agents:
+        return {"error": f"Agent '{agent_name}' tidak ditemukan. Tersedia: {list(glob.agents.keys())}"}
+    ag  = glob.agents[agent_name]
+    pf  = glob.portfolio_value(agent_name)
+    return {
+        "market":     "Global",
+        "agent":      agent_name,
+        "signal":     ag["signal"],
+        "confidence": ag["confidence"],
+        "reason":     ag["reason"],
+        "ticker":     ag["last_ticker"],
+        "portfolio":  round(pf, 2),
+        "pnl":        round(pf - GLOBAL_MODAL, 2),
+        "pnl_pct":    round((pf - GLOBAL_MODAL) / GLOBAL_MODAL * 100, 2),
+        "timestamp":  datetime.now(WIB).isoformat(),
+    }
+
+
 @app.post("/reset")
 def reset():
     sim.reset()
