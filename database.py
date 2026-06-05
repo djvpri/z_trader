@@ -45,12 +45,14 @@ async def _create_tables():
                 ticker      VARCHAR(20)  NOT NULL,
                 type        VARCHAR(10)  NOT NULL,
                 price       FLOAT        NOT NULL,
-                lots        INTEGER      NOT NULL,
+                lots        FLOAT        NOT NULL DEFAULT 0,
                 gain        FLOAT        DEFAULT 0,
+                market      VARCHAR(10)  DEFAULT 'idx',
                 ts          TIMESTAMPTZ  DEFAULT NOW()
             );
             CREATE INDEX IF NOT EXISTS idx_tx_agent  ON transactions(agent_name);
             CREATE INDEX IF NOT EXISTS idx_tx_ts     ON transactions(ts);
+            CREATE INDEX IF NOT EXISTS idx_tx_market ON transactions(market);
 
             CREATE TABLE IF NOT EXISTS portfolio_snapshots (
                 id          SERIAL PRIMARY KEY,
@@ -105,15 +107,16 @@ async def _create_tables():
 # ─── Write ────────────────────────────────────────────────────────────────────
 
 async def save_transaction(agent_name: str, ticker: str, type_: str,
-                           price: float, lots: int, gain: float = 0.0):
+                           price: float, lots: float, gain: float = 0.0,
+                           market: str = "idx"):
     if not pool:
         return
     try:
         async with pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO transactions(agent_name,ticker,type,price,lots,gain) "
-                "VALUES($1,$2,$3,$4,$5,$6)",
-                agent_name, ticker, type_, price, lots, gain
+                "INSERT INTO transactions(agent_name,ticker,type,price,lots,gain,market) "
+                "VALUES($1,$2,$3,$4,$5,$6,$7)",
+                agent_name, ticker, type_, float(price), float(lots), float(gain), market
             )
     except Exception as e:
         print(f"[db] save_transaction error: {e}")
@@ -175,6 +178,20 @@ async def save_holdings_snapshot(market: str, agents_data: list[dict]):
             )
     except Exception as e:
         print(f"[db] save_holdings error: {e}")
+
+
+async def get_all_transactions_asc(market_filter: str = None) -> list:
+    """Ambil semua transaksi urut dari terlama — untuk rekonstruksi posisi."""
+    if not pool:
+        return []
+    async with pool.acquire() as conn:
+        if market_filter:
+            rows = await conn.fetch(
+                "SELECT * FROM transactions WHERE market=$1 ORDER BY ts ASC", market_filter
+            )
+        else:
+            rows = await conn.fetch("SELECT * FROM transactions ORDER BY ts ASC")
+    return [dict(r) for r in rows]
 
 
 async def get_latest_holdings(market: str) -> dict:

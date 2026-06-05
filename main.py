@@ -1280,10 +1280,12 @@ def execute_global_trade(agent_name: str, ticker: str, action: str, price: float
         h["avg_price"] = (h["positions"]*h["avg_price"] + units*price) / total
         h["positions"] = total
         ag["trades"].append({"type":"BUY","ticker":ticker,"price":price,"units":units,"time":datetime.now().isoformat()})
+        asyncio.create_task(db.save_transaction(agent_name, ticker, "BUY", price, units, 0.0, "global"))
     elif action == "SELL" and h["positions"] > 0:
         gain        = (price - h["avg_price"]) * h["positions"]
         ag["cash"] += h["positions"] * price
         ag["trades"].append({"type":"SELL","ticker":ticker,"price":price,"units":h["positions"],"gain":gain,"time":datetime.now().isoformat()})
+        asyncio.create_task(db.save_transaction(agent_name, ticker, "SELL", price, h["positions"], gain, "global"))
         h["positions"] = 0.0
         h["avg_price"] = 0.0
 
@@ -1435,44 +1437,96 @@ async def global_trading_loop():
 
 
 # ─── Restore portfolio dari DB ───────────────────────────────────────────────
-async def restore_idx_from_db():
-    data = await db.get_latest_holdings("idx")
-    if not data:
-        print("[restore] IDX: tidak ada snapshot, mulai dari awal")
-        return
+def _apply_holdings(agents_dict: dict, data: dict, label: str):
+    """Helper: terapkan data holdings ke agents."""
     restored = 0
     for name, state in data.items():
-        if name not in sim.agents:
+        if name not in agents_dict:
             continue
-        sim.agents[name]["cash"] = float(state["cash"])
+        agents_dict[name]["cash"] = float(state["cash"])
         for ticker, h in state["holdings"].items():
-            if ticker in sim.agents[name]["holdings"]:
-                sim.agents[name]["holdings"][ticker] = {
+            if ticker in agents_dict[name]["holdings"]:
+                agents_dict[name]["holdings"][ticker] = {
                     "positions": float(h.get("positions", 0)),
                     "avg_price": float(h.get("avg_price", 0)),
                 }
         restored += 1
-    print(f"[restore] IDX: {restored} agent dipulihkan dari DB")
+    print(f"[restore] {label}: {restored} agent dipulihkan dari snapshot DB")
+    return restored
+
+
+async def _reconstruct_from_transactions(market: str, agents_dict: dict,
+                                         tickers_list: list, modal: float,
+                                         lot_size: int = 1, label: str = ""):
+    """Rekonstruksi posisi dengan memutar ulang semua transaksi dari DB."""
+    txs = await db.get_all_transactions_asc(market)
+    if not txs:
+        print(f"[restore] {label}: tidak ada transaksi di DB, mulai dari awal")
+        return
+
+    # Kelompokkan per agent
+    from collections import defaultdict
+    agent_txs: dict = defaultdict(list)
+    for tx in txs:
+        agent_txs[tx["agent_name"]].append(tx)
+
+    reconstructed = 0
+    for name, agent_tx_list in agent_txs.items():
+        if name not in agents_dict:
+            continue
+        cash     = float(modal)
+        holdings = {t: {"positions": 0.0, "avg_price": 0.0} for t in tickers_list}
+
+        for tx in sorted(agent_tx_list, key=lambda x: x["ts"]):
+            ticker = tx["ticker"]
+            if ticker not in holdings:
+                continue
+            price = float(tx["price"])
+            units = float(tx["lots"])   # lots = units (FLOAT sekarang)
+
+            if tx["type"] == "BUY":
+                cost  = units * (lot_size if lot_size > 1 else price) if lot_size > 1 else units * price
+                cost  = units * lot_size * price if lot_size > 1 else units * price
+                cash -= cost
+                total = holdings[ticker]["positions"] + (units * lot_size if lot_size > 1 else units)
+                if total > 0:
+                    prev_pos = holdings[ticker]["positions"]
+                    new_pos  = units * lot_size if lot_size > 1 else units
+                    holdings[ticker]["avg_price"] = (prev_pos * holdings[ticker]["avg_price"] + new_pos * price) / total
+                holdings[ticker]["positions"] = total
+            elif tx["type"] == "SELL":
+                cash += holdings[ticker]["positions"] * price
+                holdings[ticker]["positions"] = 0.0
+                holdings[ticker]["avg_price"] = 0.0
+
+        agents_dict[name]["cash"] = max(0.0, cash)
+        for t, h in holdings.items():
+            agents_dict[name]["holdings"][t] = h
+        reconstructed += 1
+
+    print(f"[restore] {label}: {reconstructed} agent direkonstruksi dari {len(txs)} transaksi DB")
+
+
+async def restore_idx_from_db():
+    # Prioritas 1: snapshot holdings
+    data = await db.get_latest_holdings("idx")
+    if data:
+        _apply_holdings(sim.agents, data, "IDX")
+        return
+    # Fallback: rekonstruksi dari transaksi
+    print("[restore] IDX: tidak ada snapshot, rekonstruksi dari transaksi...")
+    await _reconstruct_from_transactions("idx", sim.agents, TICKERS, MODAL, LOT_SIZE, "IDX")
 
 
 async def restore_global_from_db():
+    # Prioritas 1: snapshot holdings
     data = await db.get_latest_holdings("global")
-    if not data:
-        print("[restore] Global: tidak ada snapshot, mulai dari awal")
+    if data:
+        _apply_holdings(glob.agents, data, "Global")
         return
-    restored = 0
-    for name, state in data.items():
-        if name not in glob.agents:
-            continue
-        glob.agents[name]["cash"] = float(state["cash"])
-        for ticker, h in state["holdings"].items():
-            if ticker in glob.agents[name]["holdings"]:
-                glob.agents[name]["holdings"][ticker] = {
-                    "positions": float(h.get("positions", 0)),
-                    "avg_price": float(h.get("avg_price", 0)),
-                }
-        restored += 1
-    print(f"[restore] Global: {restored} agent dipulihkan dari DB")
+    # Fallback: rekonstruksi dari transaksi
+    print("[restore] Global: tidak ada snapshot, rekonstruksi dari transaksi...")
+    await _reconstruct_from_transactions("global", glob.agents, GLOBAL_TICKERS, GLOBAL_MODAL, 1, "Global")
 
 
 # ─── FastAPI app ───────────────────────────────────────────────────────────────
