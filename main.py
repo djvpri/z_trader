@@ -28,9 +28,27 @@ from fastapi.responses import FileResponse
 load_dotenv()
 
 # ─── Konfigurasi API key ──────────────────────────────────────────────────────
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
-GEMINI_API_KEY   = os.getenv("GEMINI_API_KEY", "")
-QWEN_API_KEY     = os.getenv("QWEN_API_KEY", "")
+DEEPSEEK_API_KEY   = os.getenv("DEEPSEEK_API_KEY", "")
+GEMINI_API_KEY     = os.getenv("GEMINI_API_KEY", "")
+QWEN_API_KEY       = os.getenv("QWEN_API_KEY", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# ─── Telegram notifikasi ──────────────────────────────────────────────────────
+async def send_telegram(message: str):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(url, json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": message,
+                "parse_mode": "HTML",
+            })
+    except Exception as e:
+        print(f"[telegram] Error: {e}")
+
 
 # ─── Konstanta ────────────────────────────────────────────────────────────────
 MODAL           = 100_000_000   # Rp 100 juta modal awal per AI
@@ -703,6 +721,14 @@ async def execute_trade(agent_name: str, ticker: str, action: str, price: float)
             "lots": lots, "time": datetime.now().isoformat(),
         })
         await db.save_transaction(agent_name, ticker, "BUY", price, lots)
+        pf = sim.portfolio_value(agent_name)
+        pnl_pct = (pf - MODAL) / MODAL * 100
+        await send_telegram(
+            f"🟢 <b>BUY IDX</b> — {agent_name}\n"
+            f"📌 {ticker} @ Rp{price:,.0f}\n"
+            f"📦 {lots} lot ({lots*LOT_SIZE:,} lembar) | Biaya Rp{cost:,.0f}\n"
+            f"💼 Portfolio: Rp{pf:,.0f} ({pnl_pct:+.2f}%)"
+        )
 
     elif action == "SELL" and h["positions"] > 0:
         lots_sold   = h["positions"] // LOT_SIZE
@@ -715,6 +741,15 @@ async def execute_trade(agent_name: str, ticker: str, action: str, price: float)
         await db.save_transaction(agent_name, ticker, "SELL", price, lots_sold, gain)
         h["positions"] = 0
         h["avg_price"] = 0.0
+        pf = sim.portfolio_value(agent_name)
+        pnl_pct = (pf - MODAL) / MODAL * 100
+        gain_sign = "✅" if gain >= 0 else "🔴"
+        await send_telegram(
+            f"{gain_sign} <b>SELL IDX</b> — {agent_name}\n"
+            f"📌 {ticker} @ Rp{price:,.0f}\n"
+            f"📦 {lots_sold} lot | Gain: Rp{gain:+,.0f}\n"
+            f"💼 Portfolio: Rp{pf:,.0f} ({pnl_pct:+.2f}%)"
+        )
 
 
 # ─── Deteksi trigger Gemini ───────────────────────────────────────────────────
@@ -1283,13 +1318,33 @@ def execute_global_trade(agent_name: str, ticker: str, action: str, price: float
         h["positions"] = total
         ag["trades"].append({"type":"BUY","ticker":ticker,"price":price,"units":units,"time":datetime.now().isoformat()})
         asyncio.create_task(db.save_transaction(agent_name, ticker, "BUY", price, units, 0.0, "global"))
+        pf = glob.portfolio_value(agent_name)
+        pnl_pct = (pf - GLOBAL_MODAL) / GLOBAL_MODAL * 100
+        short = GLOBAL_PAIRS.get(ticker, {}).get("short", ticker)
+        asyncio.create_task(send_telegram(
+            f"🟢 <b>BUY Global</b> — {agent_name}\n"
+            f"📌 {short} ({ticker}) @ ${price:,.4g}\n"
+            f"📦 {units:.4g} units | Spend: ${spend:,.2f}\n"
+            f"💼 Portfolio: ${pf:,.2f} ({pnl_pct:+.2f}%)"
+        ))
     elif action == "SELL" and h["positions"] > 0:
         gain        = (price - h["avg_price"]) * h["positions"]
         ag["cash"] += h["positions"] * price
         ag["trades"].append({"type":"SELL","ticker":ticker,"price":price,"units":h["positions"],"gain":gain,"time":datetime.now().isoformat()})
         asyncio.create_task(db.save_transaction(agent_name, ticker, "SELL", price, h["positions"], gain, "global"))
+        units_sold = h["positions"]
         h["positions"] = 0.0
         h["avg_price"] = 0.0
+        pf = glob.portfolio_value(agent_name)
+        pnl_pct = (pf - GLOBAL_MODAL) / GLOBAL_MODAL * 100
+        gain_sign = "✅" if gain >= 0 else "🔴"
+        short = GLOBAL_PAIRS.get(ticker, {}).get("short", ticker)
+        asyncio.create_task(send_telegram(
+            f"{gain_sign} <b>SELL Global</b> — {agent_name}\n"
+            f"📌 {short} ({ticker}) @ ${price:,.4g}\n"
+            f"📦 {units_sold:.4g} units | Gain: ${gain:+,.2f}\n"
+            f"💼 Portfolio: ${pf:,.2f} ({pnl_pct:+.2f}%)"
+        ))
 
 
 def detect_global_trigger() -> list[str]:
