@@ -1564,26 +1564,57 @@ async def _reconstruct_from_transactions(market: str, agents_dict: dict,
     print(f"[restore] {label}: {reconstructed} agent direkonstruksi dari {len(txs)} transaksi DB")
 
 
+async def _restore_trades(agents_dict: dict, market: str):
+    """Muat riwayat transaksi dari DB ke ag['trades'] di memori."""
+    txs = await db.get_all_transactions_asc(market)
+    if not txs:
+        return
+    from collections import defaultdict
+    by_agent = defaultdict(list)
+    for tx in txs:
+        by_agent[tx["agent_name"]].append(tx)
+    for name, tx_list in by_agent.items():
+        if name not in agents_dict:
+            continue
+        agents_dict[name]["trades"] = [
+            {"type": tx["type"], "ticker": tx["ticker"],
+             "price": float(tx["price"]), "lots": float(tx["lots"]),
+             "gain": float(tx.get("gain") or 0), "time": tx["ts"].isoformat()}
+            for tx in tx_list
+        ]
+    print(f"[restore] {market}: trade history dimuat untuk {len(by_agent)} agent")
+
+
 async def restore_idx_from_db():
+    if not db.pool:
+        print("[restore] IDX: DATABASE_URL tidak diset — data tidak akan tersimpan antar restart!")
+        return
     # Prioritas 1: snapshot holdings
     data = await db.get_latest_holdings("idx")
     if data:
         _apply_holdings(sim.agents, data, "IDX")
-        return
-    # Fallback: rekonstruksi dari transaksi
-    print("[restore] IDX: tidak ada snapshot, rekonstruksi dari transaksi...")
-    await _reconstruct_from_transactions("idx", sim.agents, TICKERS, MODAL, LOT_SIZE, "IDX")
+    else:
+        # Fallback: rekonstruksi dari transaksi
+        print("[restore] IDX: tidak ada snapshot, rekonstruksi dari transaksi...")
+        await _reconstruct_from_transactions("idx", sim.agents, TICKERS, MODAL, LOT_SIZE, "IDX")
+    # Restore trade history dari DB ke memori
+    await _restore_trades(sim.agents, "idx")
 
 
 async def restore_global_from_db():
+    if not db.pool:
+        print("[restore] Global: DATABASE_URL tidak diset — data tidak akan tersimpan antar restart!")
+        return
     # Prioritas 1: snapshot holdings
     data = await db.get_latest_holdings("global")
     if data:
         _apply_holdings(glob.agents, data, "Global")
-        return
-    # Fallback: rekonstruksi dari transaksi
-    print("[restore] Global: tidak ada snapshot, rekonstruksi dari transaksi...")
-    await _reconstruct_from_transactions("global", glob.agents, GLOBAL_TICKERS, GLOBAL_MODAL, 1, "Global")
+    else:
+        # Fallback: rekonstruksi dari transaksi
+        print("[restore] Global: tidak ada snapshot, rekonstruksi dari transaksi...")
+        await _reconstruct_from_transactions("global", glob.agents, GLOBAL_TICKERS, GLOBAL_MODAL, 1, "Global")
+    # Restore trade history dari DB ke memori
+    await _restore_trades(glob.agents, "global")
 
 
 # ─── FastAPI app ───────────────────────────────────────────────────────────────
