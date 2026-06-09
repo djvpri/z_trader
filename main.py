@@ -938,8 +938,10 @@ FOREX_TICKERS  = [t for t in GLOBAL_TICKERS if "=X" in t]
 GLOBAL_GEMINI_SYSTEM = (
     "Kamu adalah AI trader global markets (komoditas, crypto, indeks, forex). "
     "Pilih pair terbaik berdasarkan data teknikal. "
+    "Gunakan kode pendek untuk field ticker: XAU=Gold, XAG=Silver, OIL=CrudeOil, GAS=NatGas, "
+    "BTC=Bitcoin, SPX=SP500, NDX=Nasdaq, EUR=EURUSD, GBP=GBPUSD, JPY=USDJPY, AUD=AUDUSD. "
     "Respond HANYA dengan JSON: "
-    '{"ticker":"KODE","action":"BUY"|"SELL"|"HOLD","confidence":0-100,"reason":"maks 20 kata"}'
+    '{"ticker":"KODE_PENDEK","action":"BUY"|"SELL"|"HOLD","confidence":0-100,"reason":"maks 20 kata"}'
 )
 
 GLOBAL_NEWS_POOL = [
