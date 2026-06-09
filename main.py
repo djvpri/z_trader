@@ -1617,10 +1617,40 @@ async def restore_global_from_db():
     await _restore_trades(glob.agents, "global")
 
 
+# ─── Simpan snapshot darurat sebelum shutdown ────────────────────────────────
+async def _emergency_snapshot():
+    """Dipanggil saat shutdown — pastikan data tersimpan sebelum container mati."""
+    if not db.pool:
+        return
+    try:
+        # IDX
+        idx_data = [{"name": n, "cash": float(ag["cash"]),
+                     "holdings": {t: {"positions": float(h["positions"]), "avg_price": float(h["avg_price"])}
+                                  for t, h in ag["holdings"].items() if h["positions"] > 0}}
+                    for n, ag in sim.agents.items()]
+        await db.save_holdings_snapshot("idx", idx_data)
+        # Global
+        glob_data = [{"name": n, "cash": float(ag["cash"]),
+                      "holdings": {t: {"positions": float(h["positions"]), "avg_price": float(h["avg_price"])}
+                                   for t, h in ag["holdings"].items() if h["positions"] > 0}}
+                     for n, ag in glob.agents.items()]
+        await db.save_holdings_snapshot("global", glob_data)
+        print("[shutdown] Emergency snapshot tersimpan")
+    except Exception as e:
+        print(f"[shutdown] Emergency snapshot gagal: {e}")
+
+
 # ─── FastAPI app ───────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await db.init_db()
+    # Retry koneksi DB sampai 5x — Railway kadang start app sebelum PostgreSQL siap
+    for attempt in range(1, 6):
+        await db.init_db()
+        if db.pool:
+            break
+        print(f"[startup] DB belum siap, coba lagi {attempt}/5 dalam 3 detik...")
+        await asyncio.sleep(3)
+
     await db.save_session_start()
     await restore_idx_from_db()
     await restore_global_from_db()
@@ -1629,6 +1659,7 @@ async def lifespan(app: FastAPI):
     yield
     task1.cancel()
     task2.cancel()
+    await _emergency_snapshot()
 
 
 app = FastAPI(title="Z Trader", lifespan=lifespan)
